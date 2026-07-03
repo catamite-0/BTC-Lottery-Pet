@@ -1,9 +1,19 @@
+mod algorithm_diagnostics;
 mod gpu_miner;
 mod miner;
 mod notifications;
 
-use std::{fs, path::PathBuf, process::Command, thread};
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+    process::Command,
+    thread,
+};
 
+use algorithm_diagnostics::{
+    diagnostic_algorithm_kernel_benchmark, AlgorithmKernelBenchmark, DIAGNOSTIC_SCHEMA_VERSION,
+};
 use miner::{MiningController, PoolDiagnosticReport, PoolDiagnosticSettings, RealMiningSettings};
 use notifications::{
     HeartbeatInterval, HeartbeatSnapshot, JackpotNotificationEvent, NotificationChannel,
@@ -24,7 +34,6 @@ const DEFAULT_POOL_PASSWORD: &str = "x";
 const DEFAULT_PET_PROFILE_ID: &str = "classic-slot";
 const BUILTIN_PET_PROFILE_IDS: &[&str] = &["classic-slot", "cyber-miner", "lucky-cat"];
 const OLD_PUBLIC_POOL_PORT: u16 = 21496;
-const DIAGNOSTIC_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -45,6 +54,14 @@ enum PerformancePreset {
     Custom,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ExternalHashInterface {
+    #[default]
+    None,
+    Network,
+    Direct,
+}
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default)]
 struct AppConfig {
@@ -64,13 +81,19 @@ struct AppConfig {
     heartbeat_interval: HeartbeatInterval,
     notification_channel: NotificationChannel,
     webhook_url: String,
+    external_hash_interface: ExternalHashInterface,
+    #[serde(alias = "asic_host")]
+    external_hash_network_host: String,
+    #[serde(alias = "external_hash_direct_endpoint")]
+    external_hash_direct_port: String,
+    external_hash_polling_enabled: bool,
+    external_hash_poll_interval_seconds: u64,
     compute_mode: ComputeMode,
     gpu_enabled: bool,
     gpu_device_id: Option<String>,
     gpu_intensity_percent: u8,
     pet_profile_id: String,
 }
-
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -89,6 +112,11 @@ impl Default for AppConfig {
             heartbeat_interval: HeartbeatInterval::Off,
             notification_channel: NotificationChannel::LocalWindowsToast,
             webhook_url: String::new(),
+            external_hash_interface: ExternalHashInterface::None,
+            external_hash_network_host: String::new(),
+            external_hash_direct_port: String::new(),
+            external_hash_polling_enabled: false,
+            external_hash_poll_interval_seconds: 60,
             compute_mode: ComputeMode::Cpu,
             gpu_enabled: false,
             gpu_device_id: None,
@@ -105,6 +133,11 @@ impl AppConfig {
         self.pool_password = normalize_pool_password(&self.pool_password);
         self.worker_name = self.worker_name.trim().to_owned();
         self.webhook_url = self.webhook_url.trim().to_owned();
+        self.external_hash_interface = ExternalHashInterface::None;
+        self.external_hash_network_host.clear();
+        self.external_hash_direct_port.clear();
+        self.external_hash_polling_enabled = false;
+        self.external_hash_poll_interval_seconds = 60;
         self.pet_profile_id = normalize_pet_profile_id(&self.pet_profile_id);
         self.real_mining_enabled = false;
         self.gpu_device_id = self
@@ -169,8 +202,27 @@ struct GpuDevice {
     id: String,
     name: String,
     simulated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diagnostic: Option<String>,
 }
 
+fn gpu_device_from_info(info: gpu_miner::GpuDeviceInfo) -> GpuDevice {
+    GpuDevice {
+        id: info.id,
+        name: info.name,
+        simulated: info.simulated,
+        diagnostic: None,
+    }
+}
+
+fn gpu_detection_failure_device(error: impl std::fmt::Display) -> GpuDevice {
+    GpuDevice {
+        id: "auto".into(),
+        name: "Auto (GPU detection unavailable)".into(),
+        simulated: true,
+        diagnostic: Some(format!("GPU enumeration failed: {error}")),
+    }
+}
 #[derive(Clone, Debug, Serialize)]
 struct GpuBenchmarkResult {
     device_id: String,
@@ -195,6 +247,11 @@ struct DiagnosticConfig {
     gpu_device_id: Option<String>,
     gpu_intensity_percent: u8,
     pet_profile_id: String,
+    external_hash_interface: ExternalHashInterface,
+    external_hash_network_host: String,
+    external_hash_direct_port: String,
+    external_hash_polling_enabled: bool,
+    external_hash_poll_interval_seconds: u64,
     enable_notifications: bool,
     notify_on_jackpot: bool,
     notify_on_share_accepted: bool,
@@ -212,12 +269,28 @@ struct DiagnosticSnapshot {
     identifier: String,
     config: DiagnosticConfig,
     gpu_devices: Vec<GpuDevice>,
+    algorithm_kernel_benchmark: AlgorithmKernelBenchmark,
     log_path: String,
     recent_log_lines: Vec<String>,
     last_connection_error: Option<String>,
     redacted_fields: Vec<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct FrontendDiagnosticSection {
+    title: String,
+    body: String,
+    #[serde(default, alias = "bodyJson", skip_serializing_if = "Option::is_none")]
+    body_json: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct DiagnosticBundle {
+    diagnostic_bundle_schema_version: u32,
+    generated_at: String,
+    backend_snapshot: serde_json::Value,
+    frontend_sections: Vec<FrontendDiagnosticSection>,
+}
 fn available_parallelism() -> usize {
     thread::available_parallelism()
         .map(|count| count.get())
@@ -280,11 +353,83 @@ fn ensure_config(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+fn config_temp_path(path: &Path) -> PathBuf {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.json");
+    let timestamp = chrono::Utc::now().timestamp_millis();
+
+    path.with_file_name(format!(
+        "{file_name}.tmp-{}-{timestamp}",
+        std::process::id()
+    ))
+}
+
+fn replace_file_with_backup(source: &Path, destination: &Path) -> Result<(), String> {
+    if !destination.exists() {
+        return fs::rename(source, destination)
+            .map_err(|error| format!("failed to save config: {error}"));
+    }
+
+    let backup = destination.with_extension("json.bak");
+    if backup.exists() {
+        fs::remove_file(&backup)
+            .map_err(|error| format!("failed to remove old config backup: {error}"))?;
+    }
+
+    fs::rename(destination, &backup)
+        .map_err(|error| format!("failed to prepare config backup: {error}"))?;
+
+    match fs::rename(source, destination) {
+        Ok(()) => {
+            let _ = fs::remove_file(&backup);
+            Ok(())
+        }
+        Err(error) => match fs::rename(&backup, destination) {
+            Ok(()) => Err(format!("failed to save config: {error}")),
+            Err(restore_error) => Err(format!(
+                "failed to save config: {error}; failed to restore previous config: {restore_error}"
+            )),
+        },
+    }
+}
+
+fn backup_broken_config(path: &Path, contents: &str) -> Result<PathBuf, String> {
+    let timestamp = chrono::Utc::now().timestamp_millis();
+    let backup_path = path.with_file_name(format!("config.broken-{timestamp}.json"));
+
+    fs::write(&backup_path, contents)
+        .map_err(|error| format!("failed to back up broken config: {error}"))?;
+
+    Ok(backup_path)
+}
+
 fn write_config(app: &AppHandle, config: &AppConfig) -> Result<(), String> {
     let contents = serde_json::to_string_pretty(config)
         .map_err(|error| format!("failed to encode config: {error}"))?;
-    fs::write(config_path(app)?, format!("{contents}\n"))
-        .map_err(|error| format!("failed to save config: {error}"))
+    let path = config_path(app)?;
+    let temp_path = config_temp_path(&path);
+    let payload = format!("{contents}\n");
+
+    let mut file = fs::File::create(&temp_path)
+        .map_err(|error| format!("failed to create temporary config: {error}"))?;
+    if let Err(error) = file.write_all(payload.as_bytes()) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!("failed to write temporary config: {error}"));
+    }
+    if let Err(error) = file.sync_all() {
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!("failed to flush temporary config: {error}"));
+    }
+    drop(file);
+
+    if let Err(error) = replace_file_with_backup(&temp_path, &path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(error);
+    }
+
+    Ok(())
 }
 
 fn load_config(app: &AppHandle) -> Result<AppConfig, String> {
@@ -299,10 +444,18 @@ fn load_config(app: &AppHandle) -> Result<AppConfig, String> {
         Ok(c) => c,
         Err(error) => {
             eprintln!("[Config] Failed to parse saved config: {error}. Using defaults.");
+            match backup_broken_config(&path, &contents) {
+                Ok(backup_path) => eprintln!(
+                    "[Config] Backed up broken config to {}.",
+                    backup_path.display()
+                ),
+                Err(backup_error) => eprintln!("[Config] {backup_error}."),
+            }
             let default: AppConfig =
                 serde_json::from_str(DEFAULT_CONFIG).expect("DEFAULT_CONFIG must always be valid");
-            // Overwrite the broken config file with clean defaults
-            let _ = write_config(app, &default);
+            if let Err(write_error) = write_config(app, &default) {
+                eprintln!("[Config] Failed to rewrite default config: {write_error}.");
+            }
             default
         }
     };
@@ -341,18 +494,17 @@ fn get_system_info() -> SystemInfo {
 
 #[tauri::command]
 async fn get_gpu_devices() -> Vec<GpuDevice> {
-    tauri::async_runtime::spawn_blocking(|| {
+    match tauri::async_runtime::spawn_blocking(|| {
         gpu_miner::enumerate_gpu_devices()
             .into_iter()
-            .map(|info| GpuDevice {
-                id: info.id,
-                name: info.name,
-                simulated: info.simulated,
-            })
+            .map(gpu_device_from_info)
             .collect()
     })
     .await
-    .unwrap_or_default()
+    {
+        Ok(devices) => devices,
+        Err(error) => vec![gpu_detection_failure_device(error)],
+    }
 }
 
 #[tauri::command]
@@ -409,6 +561,7 @@ async fn diagnose_pool_connection(
         .map_err(|_| "pool diagnostic task panicked".to_string())
 }
 
+
 #[tauri::command]
 async fn get_diagnostic_snapshot(app: AppHandle) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || build_diagnostic_snapshot(&app))
@@ -417,13 +570,17 @@ async fn get_diagnostic_snapshot(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn save_diagnostic_snapshot(app: AppHandle) -> Result<String, String> {
+async fn save_diagnostic_snapshot(
+    app: AppHandle,
+    frontend_sections: Option<Vec<FrontendDiagnosticSection>>,
+) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let snapshot = build_diagnostic_snapshot(&app)?;
+        let payload = diagnostic_save_payload(snapshot, frontend_sections.unwrap_or_default())?;
         let log_dir = ensure_log_dir(&app)?;
         let timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
         let path = log_dir.join(format!("diagnostic-{timestamp}.json"));
-        fs::write(&path, format!("{snapshot}\n"))
+        fs::write(&path, format!("{payload}\n"))
             .map_err(|error| format!("failed to save diagnostic snapshot: {error}"))?;
         Ok(path.display().to_string())
     })
@@ -510,6 +667,11 @@ fn diagnostic_config(config: AppConfig) -> DiagnosticConfig {
         gpu_device_id: config.gpu_device_id,
         gpu_intensity_percent: config.gpu_intensity_percent,
         pet_profile_id: config.pet_profile_id,
+        external_hash_interface: config.external_hash_interface,
+        external_hash_network_host: config.external_hash_network_host,
+        external_hash_direct_port: config.external_hash_direct_port,
+        external_hash_polling_enabled: config.external_hash_polling_enabled,
+        external_hash_poll_interval_seconds: config.external_hash_poll_interval_seconds,
         enable_notifications: config.enable_notifications,
         notify_on_jackpot: config.notify_on_jackpot,
         notify_on_share_accepted: config.notify_on_share_accepted,
@@ -577,6 +739,25 @@ fn diagnostic_redacted_fields(config: &AppConfig) -> Vec<String> {
     fields
 }
 
+fn diagnostic_save_payload(
+    snapshot: String,
+    frontend_sections: Vec<FrontendDiagnosticSection>,
+) -> Result<String, String> {
+    if frontend_sections.is_empty() {
+        return Ok(snapshot);
+    }
+
+    let backend_snapshot = serde_json::from_str(&snapshot)
+        .map_err(|error| format!("failed to parse backend diagnostic snapshot: {error}"))?;
+    let bundle = DiagnosticBundle {
+        diagnostic_bundle_schema_version: 1,
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        backend_snapshot,
+        frontend_sections,
+    };
+    serde_json::to_string_pretty(&bundle)
+        .map_err(|error| format!("failed to encode diagnostic bundle: {error}"))
+}
 fn build_diagnostic_snapshot(app: &AppHandle) -> Result<String, String> {
     let config = load_config(app)?;
     let redacted_fields = diagnostic_redacted_fields(&config);
@@ -592,11 +773,7 @@ fn build_diagnostic_snapshot(app: &AppHandle) -> Result<String, String> {
         .cloned();
     let gpu_devices = gpu_miner::enumerate_gpu_devices()
         .into_iter()
-        .map(|info| GpuDevice {
-            id: info.id,
-            name: info.name,
-            simulated: info.simulated,
-        })
+        .map(gpu_device_from_info)
         .collect();
     let snapshot = DiagnosticSnapshot {
         diagnostic_schema_version: DIAGNOSTIC_SCHEMA_VERSION,
@@ -610,6 +787,7 @@ fn build_diagnostic_snapshot(app: &AppHandle) -> Result<String, String> {
         identifier: app.config().identifier.clone(),
         config: diagnostic_config(config),
         gpu_devices,
+        algorithm_kernel_benchmark: diagnostic_algorithm_kernel_benchmark(),
         log_path,
         recent_log_lines,
         last_connection_error,
@@ -773,7 +951,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{get_system_info, AppConfig, ComputeMode, PerformancePreset};
+    use super::{
+        backup_broken_config, get_system_info, replace_file_with_backup, AppConfig, ComputeMode,
+        ExternalHashInterface, PerformancePreset,
+    };
     use crate::gpu_miner;
 
     fn run_gpu_hardware_tests() -> bool {
@@ -787,6 +968,9 @@ mod tests {
             compute_mode: ComputeMode::Gpu,
             gpu_enabled: true,
             gpu_device_id: Some("simulated-gpu".into()),
+            external_hash_interface: ExternalHashInterface::Direct,
+            external_hash_polling_enabled: true,
+            external_hash_poll_interval_seconds: 7_200,
             ..AppConfig::default()
         };
 
@@ -795,6 +979,25 @@ mod tests {
         assert!(!normalized.real_mining_enabled);
         assert_eq!(normalized.compute_mode, ComputeMode::Gpu);
         assert!(normalized.gpu_enabled);
+        assert!(!normalized.external_hash_polling_enabled);
+        assert_eq!(normalized.external_hash_poll_interval_seconds, 60);
+    }
+
+    #[test]
+    fn direct_endpoint_alias_loads_as_reserved_direct_endpoint() {
+        let config: AppConfig = serde_json::from_str(
+            r#"{
+                "external_hash_interface": "direct",
+                "external_hash_direct_endpoint": " usb://future-miner "
+            }"#,
+        )
+        .unwrap();
+
+        let normalized = config.normalized();
+
+        assert_eq!(normalized.external_hash_interface, ExternalHashInterface::None);
+        assert_eq!(normalized.external_hash_direct_port, "");
+        assert!(!normalized.external_hash_polling_enabled);
     }
 
     #[test]
@@ -954,6 +1157,17 @@ mod tests {
             identifier: "com.btc-lottery-pet.desktop".into(),
             config: super::diagnostic_config(AppConfig::default()),
             gpu_devices: Vec::new(),
+            algorithm_kernel_benchmark: super::AlgorithmKernelBenchmark {
+                status: "ok".into(),
+                nonce_count: 2048,
+                full_header_hashrate: 1.0,
+                midstate_hashrate: 2.0,
+                speedup_ratio: 2.0,
+                full_header_duration_micros: 1,
+                midstate_duration_micros: 1,
+                checksum_hex: "0000000000000000".into(),
+                note: "test fixture".into(),
+            },
             log_path: String::new(),
             recent_log_lines: Vec::new(),
             last_connection_error: None,
@@ -962,9 +1176,78 @@ mod tests {
 
         let value = serde_json::to_value(snapshot).unwrap();
 
-        assert_eq!(value["diagnostic_schema_version"], 2);
+        assert_eq!(value["diagnostic_schema_version"], 3);
         assert_eq!(value["identifier"], "com.btc-lottery-pet.desktop");
+        assert!(value["algorithm_kernel_benchmark"].is_object());
+        assert_eq!(value["algorithm_kernel_benchmark"]["status"], "ok");
         assert!(value.get("flavor").is_none());
+    }
+
+    #[test]
+    fn diagnostic_save_payload_wraps_frontend_algorithm_sections() {
+        let backend =
+            r#"{"diagnostic_schema_version":3,"algorithm_kernel_benchmark":{"status":"ok"}}"#
+                .to_string();
+        let payload = super::diagnostic_save_payload(
+            backend,
+            vec![super::FrontendDiagnosticSection {
+                title: "Frontend Mining Algorithm Plan".into(),
+                body:
+                    "{\"operatingPolicy\":{\"kernelOptimization\":{\"mode\":\"midstate_density\"}}}"
+                        .into(),
+                body_json: Some(serde_json::json!({
+                    "operatingPolicy": {
+                        "kernelOptimization": {"mode": "midstate_density"}
+                    }
+                })),
+            }],
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&payload).unwrap();
+
+        assert_eq!(value["diagnostic_bundle_schema_version"], 1);
+        assert_eq!(value["backend_snapshot"]["diagnostic_schema_version"], 3);
+        assert_eq!(
+            value["backend_snapshot"]["algorithm_kernel_benchmark"]["status"],
+            "ok"
+        );
+        assert_eq!(
+            value["frontend_sections"][0]["title"],
+            "Frontend Mining Algorithm Plan"
+        );
+        assert_eq!(
+            value["frontend_sections"][0]["body_json"]["operatingPolicy"]["kernelOptimization"]
+                ["mode"],
+            "midstate_density"
+        );
+        assert!(value["frontend_sections"][0]["body"]
+            .as_str()
+            .unwrap()
+            .contains("kernelOptimization"));
+    }
+
+    #[test]
+    fn diagnostic_save_payload_keeps_legacy_backend_snapshot_without_frontend_sections() {
+        let backend = r#"{"diagnostic_schema_version":3}"#.to_string();
+        let payload = super::diagnostic_save_payload(backend.clone(), Vec::new()).unwrap();
+
+        assert_eq!(payload, backend);
+    }
+
+    #[test]
+    fn diagnostic_algorithm_kernel_benchmark_reports_midstate_ratio() {
+        let benchmark = super::diagnostic_algorithm_kernel_benchmark();
+
+        assert_eq!(benchmark.status, "ok");
+        assert_eq!(benchmark.nonce_count, 2048);
+        assert!(benchmark.full_header_hashrate.is_finite());
+        assert!(benchmark.full_header_hashrate > 0.0);
+        assert!(benchmark.midstate_hashrate.is_finite());
+        assert!(benchmark.midstate_hashrate > 0.0);
+        assert!(benchmark.speedup_ratio.is_finite());
+        assert!(benchmark.speedup_ratio > 0.0);
+        assert_eq!(benchmark.checksum_hex.len(), 16);
+        assert!(benchmark.note.contains("Fixed-window CPU benchmark"));
     }
 
     #[test]
@@ -1011,6 +1294,49 @@ mod tests {
         );
     }
 
+    fn temp_test_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "btc-lottery-pet-{name}-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_millis()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn replace_file_with_backup_replaces_existing_config() {
+        let dir = temp_test_dir("config-replace");
+        let destination = dir.join("config.json");
+        let source = dir.join("config.json.tmp");
+
+        std::fs::write(&destination, "old config").unwrap();
+        std::fs::write(&source, "new config").unwrap();
+
+        replace_file_with_backup(&source, &destination).unwrap();
+
+        assert_eq!(std::fs::read_to_string(&destination).unwrap(), "new config");
+        assert!(!source.exists());
+        assert!(!destination.with_extension("json.bak").exists());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn broken_config_backup_preserves_bad_payload() {
+        let dir = temp_test_dir("config-broken");
+        let config_path = dir.join("config.json");
+        let backup = backup_broken_config(&config_path, "{ broken json").unwrap();
+
+        assert!(backup
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("config.broken-"));
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "{ broken json");
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
     #[test]
     fn gpu_benchmark_returns_a_result() {
         if !run_gpu_hardware_tests() {

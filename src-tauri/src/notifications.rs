@@ -133,7 +133,7 @@ fn jackpot_actions(
                 "hash": event.hash,
                 "difficulty": event.difficulty,
                 "timestamp": event.timestamp,
-                "note": "found_block.json saved locally"
+                "note": "found_block_*.json saved locally"
             }),
         });
     }
@@ -353,7 +353,7 @@ mod tests {
         let body = body.expect("expected webhook action");
         let serialized = serde_json::to_string(body).unwrap();
         assert!(serialized.contains("\"event\":\"jackpot\""));
-        assert!(serialized.contains("\"note\":\"found_block.json saved locally\""));
+        assert!(serialized.contains("\"note\":\"found_block_*.json saved locally\""));
         assert!(!serialized.contains("btc_address"));
         assert!(!serialized.contains("private"));
         assert!(!serialized.contains("seed"));

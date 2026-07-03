@@ -20,7 +20,6 @@ use opencl3::types::{cl_uint, CL_BLOCKING};
 const GPU_WORKGROUP_SIZE: u32 = 256;
 const GPU_MIN_DISPATCH: u32 = GPU_WORKGROUP_SIZE * 256; // 65,536 nonces
 const GPU_START_DISPATCH: u32 = GPU_WORKGROUP_SIZE * 1024; // 262,144 nonces
-const DIFF_ONE_TARGET_HIGH64: f64 = 65_535.0 * 65_536.0;
 const GPU_MAX_THROTTLE_SLEEP: Duration = Duration::from_secs(10);
 
 // SHA-256 round constants
@@ -40,21 +39,7 @@ const H_INIT: [u32; 8] = [
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
 ];
 
-/// Computes the SHA-256 intermediate state after processing one 64-byte block.
-/// Returns 8 big-endian u32 values representing the SHA-256 state.
-pub(crate) fn sha256_midstate(first_block: &[u8; 64]) -> [u32; 8] {
-    // Parse the 64-byte block into 16 big-endian u32 words
-    let mut w = [0u32; 64];
-    for i in 0..16 {
-        w[i] = u32::from_be_bytes([
-            first_block[i * 4],
-            first_block[i * 4 + 1],
-            first_block[i * 4 + 2],
-            first_block[i * 4 + 3],
-        ]);
-    }
-
-    // Expand message schedule
+fn expand_schedule(w: &mut [u32; 64]) {
     for i in 16..64 {
         let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
         let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
@@ -63,9 +48,10 @@ pub(crate) fn sha256_midstate(first_block: &[u8; 64]) -> [u32; 8] {
             .wrapping_add(w[i - 7])
             .wrapping_add(s1);
     }
+}
 
-    // Compress
-    let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = H_INIT;
+fn sha256_compress_state(state: &mut [u32; 8], w: &[u32; 64]) {
+    let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = *state;
 
     for i in 0..64 {
         let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
@@ -89,46 +75,283 @@ pub(crate) fn sha256_midstate(first_block: &[u8; 64]) -> [u32; 8] {
         a = temp1.wrapping_add(temp2);
     }
 
-    [
-        H_INIT[0].wrapping_add(a),
-        H_INIT[1].wrapping_add(b),
-        H_INIT[2].wrapping_add(c),
-        H_INIT[3].wrapping_add(d),
-        H_INIT[4].wrapping_add(e),
-        H_INIT[5].wrapping_add(f),
-        H_INIT[6].wrapping_add(g),
-        H_INIT[7].wrapping_add(h),
-    ]
+    state[0] = state[0].wrapping_add(a);
+    state[1] = state[1].wrapping_add(b);
+    state[2] = state[2].wrapping_add(c);
+    state[3] = state[3].wrapping_add(d);
+    state[4] = state[4].wrapping_add(e);
+    state[5] = state[5].wrapping_add(f);
+    state[6] = state[6].wrapping_add(g);
+    state[7] = state[7].wrapping_add(h);
+}
+
+/// Computes the SHA-256 intermediate state after processing one 64-byte block.
+/// Returns 8 big-endian u32 values representing the SHA-256 state.
+pub(crate) fn sha256_midstate(first_block: &[u8; 64]) -> [u32; 8] {
+    let mut w = [0u32; 64];
+    for i in 0..16 {
+        w[i] = u32::from_be_bytes([
+            first_block[i * 4],
+            first_block[i * 4 + 1],
+            first_block[i * 4 + 2],
+            first_block[i * 4 + 3],
+        ]);
+    }
+
+    expand_schedule(&mut w);
+    let mut state = H_INIT;
+    sha256_compress_state(&mut state, &w);
+    state
+}
+
+/// Completes Bitcoin double-SHA256 from a cached first-block midstate.
+/// `tail` is header bytes 64..76 as little-endian u32 words; `nonce` fills bytes 76..80.
+pub(crate) fn double_sha256_from_midstate(
+    midstate: &[u32; 8],
+    tail: &[u32; 3],
+    nonce: u32,
+) -> [u8; 32] {
+    ReusableMidstateHasher::new(tail).double_sha256(midstate, nonce)
+}
+
+/// Reuses SHA-256 message schedule buffers for repeated nonce scans over the
+/// same 80-byte header prefix/tail.
+pub(crate) struct ReusableMidstateHasher {
+    w1: [u32; 64],
+    w2: [u32; 64],
+}
+
+impl ReusableMidstateHasher {
+    pub(crate) fn new(tail: &[u32; 3]) -> Self {
+        let mut w1 = [0u32; 64];
+        w1[0] = tail[0].swap_bytes();
+        w1[1] = tail[1].swap_bytes();
+        w1[2] = tail[2].swap_bytes();
+        w1[4] = 0x80000000;
+        w1[15] = 640;
+
+        let mut w2 = [0u32; 64];
+        w2[8] = 0x80000000;
+        w2[15] = 256;
+
+        Self { w1, w2 }
+    }
+
+    pub(crate) fn double_sha256_words(&mut self, midstate: &[u32; 8], nonce: u32) -> [u32; 8] {
+        let mut state = *midstate;
+        self.w1[3] = nonce.swap_bytes();
+        expand_schedule(&mut self.w1);
+        sha256_compress_state(&mut state, &self.w1);
+
+        self.w2[0..8].copy_from_slice(&state);
+        expand_schedule(&mut self.w2);
+
+        state = H_INIT;
+        sha256_compress_state(&mut state, &self.w2);
+        state
+    }
+
+    pub(crate) fn double_sha256(&mut self, midstate: &[u32; 8], nonce: u32) -> [u8; 32] {
+        hash_words_to_bytes(&self.double_sha256_words(midstate, nonce))
+    }
+}
+
+pub(crate) fn hash_words_to_bytes(words: &[u32; 8]) -> [u8; 32] {
+    let mut hash = [0u8; 32];
+    for (index, word) in words.iter().enumerate() {
+        hash[index * 4..index * 4 + 4].copy_from_slice(&word.to_be_bytes());
+    }
+    hash
 }
 
 /// Converts a share difficulty to an 8-word big-endian target for GPU comparison.
 ///
 /// DIFF_ONE_TARGET = 0xFFFF * 2^208, represented as words: [0, 0xFFFF0000, 0, 0, 0, 0, 0, 0].
-/// target = DIFF_ONE_TARGET / difficulty
+/// target = floor(DIFF_ONE_TARGET / difficulty)
 pub(crate) fn difficulty_to_target_words(difficulty: f64) -> [u32; 8] {
     if difficulty <= 0.0 || !difficulty.is_finite() {
         return [0xFFFFFFFF; 8];
     }
 
-    // DIFF_ONE_TARGET as words is [0x00000000, 0xFFFF0000, 0x00000000, ...].
-    // The mantissa at difficulty 1.0 is 0xFFFF, shifted left by 16 bits within
-    // a 64-bit value that spans words[0] and words[1].
-    //
-    // mantissa = 65535.0 / difficulty
-    // shifted = mantissa << 16
-    // words[0] = shifted >> 32
-    // words[1] = shifted as u32
-
-    let shifted = DIFF_ONE_TARGET_HIGH64 / difficulty;
-    if !shifted.is_finite() || shifted >= u64::MAX as f64 {
+    let bits = difficulty.to_bits();
+    let exponent_bits = ((bits >> 52) & 0x7ff) as i32;
+    if exponent_bits == 0 {
         return [0xFFFFFFFF; 8];
     }
 
+    let significand = (1_u64 << 52) | (bits & ((1_u64 << 52) - 1));
+    let exponent = exponent_bits - 1023;
+    let shift = 52 - exponent;
+    let mut numerator = diff_one_target_le_words();
+
+    if shift >= 0 {
+        shift_left_le_words(&mut numerator, shift as usize);
+    } else {
+        shift_right_le_words(&mut numerator, (-shift) as usize);
+    }
+
+    let quotient = div_le_words_by_u64(&numerator, significand);
+    le_words_to_target_words(&quotient)
+}
+
+fn diff_one_target_le_words() -> Vec<u32> {
+    vec![0, 0, 0, 0, 0, 0, 0xFFFF0000]
+}
+
+fn trim_le_words(words: &mut Vec<u32>) {
+    while words.len() > 1 && words.last() == Some(&0) {
+        words.pop();
+    }
+}
+
+fn shift_left_le_words(words: &mut Vec<u32>, bits: usize) {
+    if bits == 0 || words.iter().all(|word| *word == 0) {
+        return;
+    }
+
+    let word_shift = bits / 32;
+    let bit_shift = bits % 32;
+    if word_shift > 0 {
+        words.splice(0..0, std::iter::repeat_n(0, word_shift));
+    }
+
+    if bit_shift > 0 {
+        let mut carry = 0_u64;
+        for word in words.iter_mut() {
+            let value = ((*word as u64) << bit_shift) | carry;
+            *word = value as u32;
+            carry = value >> 32;
+        }
+        if carry != 0 {
+            words.push(carry as u32);
+        }
+    }
+
+    trim_le_words(words);
+}
+
+fn shift_right_le_words(words: &mut Vec<u32>, bits: usize) {
+    if bits == 0 || words.iter().all(|word| *word == 0) {
+        return;
+    }
+
+    let word_shift = bits / 32;
+    if word_shift >= words.len() {
+        words.clear();
+        words.push(0);
+        return;
+    }
+
+    if word_shift > 0 {
+        words.drain(0..word_shift);
+    }
+
+    let bit_shift = bits % 32;
+    if bit_shift > 0 {
+        let mut carry = 0_u32;
+        for index in (0..words.len()).rev() {
+            let next_carry = words[index] << (32 - bit_shift);
+            words[index] = (words[index] >> bit_shift) | carry;
+            carry = next_carry;
+        }
+    }
+
+    trim_le_words(words);
+}
+
+fn div_le_words_by_u64(words: &[u32], divisor: u64) -> Vec<u32> {
+    debug_assert!(divisor >= (1_u64 << 52));
+    let mut quotient = vec![0_u32; words.len()];
+    let mut remainder = 0_u128;
+    let divisor = divisor as u128;
+
+    for index in (0..words.len()).rev() {
+        let value = (remainder << 32) | words[index] as u128;
+        quotient[index] = (value / divisor) as u32;
+        remainder = value % divisor;
+    }
+
+    trim_le_words(&mut quotient);
+    quotient
+}
+
+fn le_words_to_target_words(words: &[u32]) -> [u32; 8] {
+    if words.len() > 8 && words[8..].iter().any(|word| *word != 0) {
+        return [0xFFFFFFFF; 8];
+    }
+
+    let mut target = [0_u32; 8];
+    for (index, word) in words.iter().take(8).enumerate() {
+        target[7 - index] = *word;
+    }
+    target
+}
+pub(crate) fn target_bytes_to_words(target: &[u8; 32]) -> [u32; 8] {
     let mut words = [0u32; 8];
-    let high64 = shifted as u64;
-    words[0] = (high64 >> 32) as u32;
-    words[1] = high64 as u32;
+    for (index, chunk) in target.chunks_exact(4).enumerate() {
+        words[index] = u32::from_be_bytes(chunk.try_into().unwrap());
+    }
     words
+}
+
+pub(crate) fn hash_words_meet_target_words(hash_words: &[u32; 8], target_words: &[u32; 8]) -> bool {
+    for i in 0..8 {
+        let hash_word = hash_words[7 - i].swap_bytes();
+        let target_word = target_words[i];
+
+        if hash_word < target_word {
+            return true;
+        }
+
+        if hash_word > target_word {
+            return false;
+        }
+    }
+
+    true
+}
+
+pub(crate) fn hash_words_meet_three_targets(
+    hash_words: &[u32; 8],
+    first_target: &[u32; 8],
+    second_target: &[u32; 8],
+    third_target: &[u32; 8],
+) -> [bool; 3] {
+    let targets = [first_target, second_target, third_target];
+    let mut hits = [true; 3];
+    let mut decided = [false; 3];
+
+    for i in 0..8 {
+        let hash_word = hash_words[7 - i].swap_bytes();
+        for target_index in 0..3 {
+            if decided[target_index] {
+                continue;
+            }
+
+            let target_word = targets[target_index][i];
+            if hash_word < target_word {
+                hits[target_index] = true;
+                decided[target_index] = true;
+            } else if hash_word > target_word {
+                hits[target_index] = false;
+                decided[target_index] = true;
+            }
+        }
+
+        if decided.iter().all(|value| *value) {
+            break;
+        }
+    }
+
+    hits
+}
+
+pub(crate) fn hash_meets_target_words(hash: &[u8; 32], target_words: &[u32; 8]) -> bool {
+    let mut hash_words = [0u32; 8];
+    for (index, chunk) in hash.chunks_exact(4).enumerate() {
+        hash_words[index] = u32::from_be_bytes(chunk.try_into().unwrap());
+    }
+    hash_words_meet_target_words(&hash_words, target_words)
 }
 
 fn normalize_dispatch_size(requested: u32, max_batch: u32) -> u32 {
@@ -143,6 +366,14 @@ fn min_dispatch_size(max_batch: u32) -> u32 {
 
 fn initial_dispatch_size(max_batch: u32) -> u32 {
     normalize_dispatch_size(GPU_START_DISPATCH.min(max_batch), max_batch)
+}
+
+fn dispatch_elapsed_millis(elapsed: Duration) -> u64 {
+    let nanos = elapsed.as_nanos();
+    if nanos == 0 {
+        return 0;
+    }
+    nanos.div_ceil(1_000_000).min(u64::MAX as u128) as u64
 }
 
 fn gpu_throttle_sleep_duration(intensity_percent: u8, active_ms: u64) -> Duration {
@@ -1032,24 +1263,11 @@ pub(crate) fn gpu_hash_loop(
             && shared.job_generation.load(Ordering::Acquire) == job.generation
         {
             let extranonce2 = miner::extranonce2_hex(extranonce_counter, job.extranonce2_size);
-            let Ok(header) = miner::build_header(&job, &extranonce2) else {
+            let Ok(header_work) = miner::build_header_work(&job, &extranonce2) else {
                 shared.set_connection_status("Invalid pool job");
                 shared.clear_job();
                 break;
             };
-
-            // Compute midstate from the first 64 bytes of the header.
-            // This changes per-extranonce because extranonce2 is part of the coinbase
-            // which feeds into the merkle root in the first 64 header bytes.
-            let first_block: [u8; 64] = header[0..64].try_into().unwrap();
-            let midstate = sha256_midstate(&first_block);
-
-            // Extract tail from header bytes 64-75 as 3 little-endian u32 values
-            let tail = [
-                u32::from_le_bytes(header[64..68].try_into().unwrap()),
-                u32::from_le_bytes(header[68..72].try_into().unwrap()),
-                u32::from_le_bytes(header[72..76].try_into().unwrap()),
-            ];
 
             // Inner nonce loop with adaptive batch sizing.
             //
@@ -1077,8 +1295,8 @@ pub(crate) fn gpu_hash_loop(
 
                 let dispatch_start = Instant::now();
                 let found_nonces = match gpu.mine_batch(
-                    &midstate,
-                    &tail,
+                    &header_work.midstate,
+                    &header_work.tail,
                     nonce_start,
                     &target,
                     dispatch_size,
@@ -1118,7 +1336,7 @@ pub(crate) fn gpu_hash_loop(
                         }
                     }
                 };
-                let dispatch_ms = dispatch_start.elapsed().as_millis() as u64;
+                let dispatch_ms = dispatch_elapsed_millis(dispatch_start.elapsed());
                 let throttle_sleep =
                     gpu_throttle_sleep_duration(gpu_intensity_percent, dispatch_ms);
                 let throttle_ms = throttle_sleep.as_millis() as u64;
@@ -1157,11 +1375,13 @@ pub(crate) fn gpu_hash_loop(
                 // Round to workgroup size
                 adaptive_batch = normalize_dispatch_size(adaptive_batch, max_batch);
 
-                // Verify each found nonce on the CPU
+                // Verify each found nonce on the CPU using the same midstate path.
                 for &nonce in &found_nonces {
-                    let mut verify_header = header.clone();
-                    verify_header[76..80].copy_from_slice(&nonce.to_le_bytes());
-                    let hash = miner::double_sha256(&verify_header);
+                    let hash = double_sha256_from_midstate(
+                        &header_work.midstate,
+                        &header_work.tail,
+                        nonce,
+                    );
                     let difficulty = miner::difficulty_from_hash(&hash);
 
                     shared.update_best_difficulty(difficulty);
@@ -1178,8 +1398,10 @@ pub(crate) fn gpu_hash_loop(
                         miner::record_block_candidate(&app, &event);
                     }
 
-                    if difficulty >= job.share_difficulty {
-                        if shared.stop.load(Ordering::Acquire) {
+                    if hash_meets_target_words(&hash, &target) {
+                        if shared.stop.load(Ordering::Acquire)
+                            || shared.job_generation.load(Ordering::Acquire) != job.generation
+                        {
                             break;
                         }
 
@@ -1192,6 +1414,7 @@ pub(crate) fn gpu_hash_loop(
                         );
 
                         let submission = ShareSubmission {
+                            generation: job.generation,
                             job_id: job.job_id.clone(),
                             extranonce2: extranonce2.clone(),
                             ntime: job.ntime.clone(),
@@ -1201,6 +1424,7 @@ pub(crate) fn gpu_hash_loop(
                         match share_sender.try_send(submission) {
                             Ok(()) => {}
                             Err(TrySendError::Full(_)) => {
+                                shared.record_queued_share_drop();
                                 eprintln!("[WARN] share queue full — share dropped");
                             }
                             Err(TrySendError::Disconnected(_)) => return,
@@ -1298,7 +1522,7 @@ pub(crate) fn run_gpu_benchmark(
             None => break,
         }
 
-        let dispatch_ms = dispatch_start.elapsed().as_millis() as u64;
+        let dispatch_ms = dispatch_elapsed_millis(dispatch_start.elapsed());
         if dispatch_ms < 100 {
             adaptive_batch = (adaptive_batch.saturating_mul(2)).min(max_batch);
         } else if dispatch_ms > 800 {
@@ -1352,9 +1576,64 @@ mod tests {
     }
 
     #[test]
+    fn midstate_double_sha256_matches_reference() {
+        let header = genesis_block_header();
+        let first_block: [u8; 64] = header[0..64].try_into().unwrap();
+        let midstate = sha256_midstate(&first_block);
+        let tail = [
+            u32::from_le_bytes(header[64..68].try_into().unwrap()),
+            u32::from_le_bytes(header[68..72].try_into().unwrap()),
+            u32::from_le_bytes(header[72..76].try_into().unwrap()),
+        ];
+        let nonce = u32::from_le_bytes(header[76..80].try_into().unwrap());
+
+        assert_eq!(
+            double_sha256_from_midstate(&midstate, &tail, nonce),
+            miner::double_sha256(&header)
+        );
+    }
+    #[test]
+    fn reusable_midstate_hasher_matches_reference_across_nonces() {
+        let mut header = genesis_block_header();
+        let first_block: [u8; 64] = header[0..64].try_into().unwrap();
+        let midstate = sha256_midstate(&first_block);
+        let tail = [
+            u32::from_le_bytes(header[64..68].try_into().unwrap()),
+            u32::from_le_bytes(header[68..72].try_into().unwrap()),
+            u32::from_le_bytes(header[72..76].try_into().unwrap()),
+        ];
+        let mut hasher = ReusableMidstateHasher::new(&tail);
+
+        for nonce in [0, 1, 0x1234_5678, u32::MAX] {
+            header[76..80].copy_from_slice(&nonce.to_le_bytes());
+            let words = hasher.double_sha256_words(&midstate, nonce);
+            assert_eq!(hash_words_to_bytes(&words), miner::double_sha256(&header));
+            assert_eq!(
+                hasher.double_sha256(&midstate, nonce),
+                miner::double_sha256(&header)
+            );
+        }
+    }
+
+    #[test]
     fn difficulty_to_target_preserves_diff_one() {
         let target = difficulty_to_target_words(1.0);
         assert_eq!(target, [0, 0xFFFF0000, 0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn difficulty_to_target_halves_diff_one() {
+        let target = difficulty_to_target_words(2.0);
+        assert_eq!(target, [0, 0x7FFF8000, 0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn difficulty_to_target_keeps_low_words() {
+        let target = difficulty_to_target_words(7.0);
+
+        assert_eq!(target[0], 0);
+        assert!(target[1] > 0);
+        assert!(target[2..].iter().any(|word| *word != 0));
     }
 
     #[test]
@@ -1364,40 +1643,37 @@ mod tests {
     }
 
     #[test]
+    fn hash_target_words_uses_inclusive_boundary() {
+        let zero_target = [0u32; 8];
+        assert!(hash_meets_target_words(&[0; 32], &zero_target));
+        assert!(hash_words_meet_target_words(&[0; 8], &zero_target));
+
+        let mut just_above_zero = [0u8; 32];
+        just_above_zero[0] = 1;
+        let mut just_above_zero_words = [0u32; 8];
+        just_above_zero_words[0] = 0x01000000;
+        assert!(!hash_meets_target_words(&just_above_zero, &zero_target));
+        assert!(!hash_words_meet_target_words(
+            &just_above_zero_words,
+            &zero_target
+        ));
+        assert_eq!(
+            hash_words_meet_three_targets(
+                &just_above_zero_words,
+                &zero_target,
+                &[0xffff_ffff; 8],
+                &zero_target,
+            ),
+            [false, true, false]
+        );
+    }
+    #[test]
     fn difficulty_to_target_public_pool_low_diff_is_not_max() {
         let target = difficulty_to_target_words(1e-5);
 
         assert_ne!(target, [0xFFFFFFFF; 8]);
         assert!(target[0] > 0);
-        assert!(target[2..].iter().all(|word| *word == 0));
-    }
-
-    /// Mirrors the WGSL/OpenCL kernels' hash-vs-target comparison in pure Rust
-    /// so the endianness convention is locked by a host-side regression test.
-    /// `state[k]` is the big-endian u32 of raw hash bytes [4k..4k+4], exactly as
-    /// the kernels reconstruct it; the most-significant word of the little-endian
-    /// Bitcoin hash value is therefore `swap_bytes(state[7])`.
-    fn gpu_meets_target(hash: &[u8; 32], target_words: &[u32; 8]) -> bool {
-        let mut state = [0u32; 8];
-        for k in 0..8 {
-            state[k] = u32::from_be_bytes([
-                hash[4 * k],
-                hash[4 * k + 1],
-                hash[4 * k + 2],
-                hash[4 * k + 3],
-            ]);
-        }
-        for i in 0..8 {
-            let h = state[7 - i].swap_bytes();
-            let t = target_words[i];
-            if h < t {
-                return true;
-            }
-            if h > t {
-                return false;
-            }
-        }
-        true
+        assert!(target.iter().any(|word| *word != 0));
     }
 
     fn genesis_block_header() -> Vec<u8> {
@@ -1423,17 +1699,41 @@ mod tests {
         // Sanity: the CPU path (the reference) agrees the hash clears diff 1.
         assert!(miner::difficulty_from_hash(&hash) >= 1.0);
 
+        let mut hash_words = [0u32; 8];
+        for (index, chunk) in hash.chunks_exact(4).enumerate() {
+            hash_words[index] = u32::from_be_bytes(chunk.try_into().unwrap());
+        }
+
         // The GPU share filter at difficulty 1.0 must flag the genesis hash.
-        assert!(gpu_meets_target(&hash, &difficulty_to_target_words(1.0)));
+        assert!(hash_meets_target_words(
+            &hash,
+            &difficulty_to_target_words(1.0)
+        ));
+        assert!(hash_words_meet_target_words(
+            &hash_words,
+            &difficulty_to_target_words(1.0)
+        ));
+        assert_eq!(
+            hash_words_meet_three_targets(
+                &hash_words,
+                &difficulty_to_target_words(1.0),
+                &difficulty_to_target_words(1e9),
+                &[0xffff_ffff; 8],
+            ),
+            [true, false, true]
+        );
 
         // An all-0xFF hash clears nothing.
-        assert!(!gpu_meets_target(
+        assert!(!hash_meets_target_words(
             &[0xFF; 32],
             &difficulty_to_target_words(1.0)
         ));
 
         // The genesis hash must NOT clear a target far harder than it is.
-        assert!(!gpu_meets_target(&hash, &difficulty_to_target_words(1e9)));
+        assert!(!hash_meets_target_words(
+            &hash,
+            &difficulty_to_target_words(1e9)
+        ));
     }
 
     #[test]
@@ -1447,6 +1747,18 @@ mod tests {
             gpu_throttle_sleep_duration(10, 100),
             Duration::from_millis(900)
         );
+        assert_eq!(
+            gpu_throttle_sleep_duration(10, dispatch_elapsed_millis(Duration::from_micros(250))),
+            Duration::from_millis(9)
+        );
+    }
+
+    #[test]
+    fn gpu_dispatch_elapsed_rounds_up_nonzero_sub_millisecond_work() {
+        assert_eq!(dispatch_elapsed_millis(Duration::ZERO), 0);
+        assert_eq!(dispatch_elapsed_millis(Duration::from_nanos(1)), 1);
+        assert_eq!(dispatch_elapsed_millis(Duration::from_micros(999)), 1);
+        assert_eq!(dispatch_elapsed_millis(Duration::from_micros(1_001)), 2);
     }
 
     #[test]

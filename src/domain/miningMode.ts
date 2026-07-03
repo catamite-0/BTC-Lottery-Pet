@@ -50,6 +50,22 @@ export function miningModeOption(mode: MiningMode) {
   return miningModeOptions.find((option) => option.mode === mode) ?? miningModeOptions[0];
 }
 
+export function miningModeForRuntime(
+  realModeEnabled: boolean,
+  computeMode: ComputeMode,
+  currentMode: MiningMode | null = null,
+): MiningMode {
+  if (!realModeEnabled) {
+    return "dream";
+  }
+
+  if (computeMode === "gpu" || computeMode === "hybrid") {
+    return "hardcore";
+  }
+
+  return currentMode === "solo" ? "solo" : "mining";
+}
+
 export function miningModeLabel(mode: MiningMode | null) {
   return mode ? miningModeOption(mode).title : "Choose Mode";
 }

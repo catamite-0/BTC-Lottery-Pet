@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  adaptConfigForHardware,
+  createRuntimeCapabilities,
+  cpuKernelModeForRouteAlgorithm,
   expectedSharesPerHour,
   formatShareRate,
   formatHashrate,
@@ -11,6 +14,7 @@ import {
   normalizeAppConfig,
   presetPort,
   realMiningStartError,
+  resolveRuntimeMiningProfile,
   sanitizeGpuDeviceId,
   threadsForPreset,
 } from "../.test-dist/miningLogic.js";
@@ -32,6 +36,7 @@ import {
   startJackpotSequence,
 } from "../.test-dist/domain/jackpotSequence.js";
 import { createSimulationEngine } from "../.test-dist/engines/miningEngine.js";
+import { miningModeForRuntime } from "../.test-dist/domain/miningMode.js";
 import {
   derivePetCompanionSnapshot,
   petMoodFromStatus,
@@ -77,6 +82,11 @@ function validConfig(overrides = {}) {
     heartbeat_interval: "off",
     notification_channel: "local_windows_toast",
     webhook_url: "",
+    external_hash_interface: "none",
+    external_hash_network_host: "",
+    external_hash_direct_port: "",
+    external_hash_polling_enabled: false,
+    external_hash_poll_interval_seconds: 60,
     compute_mode: "cpu",
     gpu_enabled: false,
     gpu_device_id: null,
@@ -114,6 +124,68 @@ test("GPU helpers distinguish hardware from software adapters", () => {
   assert.equal(sanitizeGpuDeviceId("missing", devices), null);
 });
 
+test("runtime capabilities summarize the current device", () => {
+  const capabilities = createRuntimeCapabilities(systemInfo, devices);
+
+  assert.equal(capabilities.availableCpuThreads, 8);
+  assert.equal(capabilities.recommendedCpuThreads, 2);
+  assert.equal(capabilities.hardwareGpuAvailable, true);
+  assert.equal(capabilities.softwareGpuAvailable, true);
+  assert.deepEqual(capabilities.hardwareGpuIds, ["gpu-0"]);
+  assert.equal(capabilities.signature, "cpu:8|rec:2|gpu:gpu-0|soft:gpu-1");
+});
+
+test("hardware adaptation makes old machine settings safe on this device", () => {
+  const smallSystem = {
+    available_parallelism: 2,
+    default_cpu_threads: 1,
+    recommended_cpu_threads: 1,
+  };
+  const softwareOnlyDevices = [
+    { id: "auto", name: "Auto", simulated: false },
+    { id: "gpu-1", name: "Software Adapter", simulated: true },
+  ];
+
+  const result = adaptConfigForHardware(
+    validConfig({
+      compute_mode: "gpu",
+      gpu_enabled: true,
+      gpu_device_id: "gpu-0",
+      performance_preset: "custom",
+      cpu_threads: 16,
+      gpu_intensity_percent: 250,
+      real_mining_enabled: true,
+    }),
+    smallSystem,
+    softwareOnlyDevices,
+  );
+
+  assert.equal(result.config.compute_mode, "cpu");
+  assert.equal(result.config.gpu_enabled, false);
+  assert.equal(result.config.gpu_device_id, null);
+  assert.equal(result.config.cpu_threads, 2);
+  assert.equal(result.config.gpu_intensity_percent, 100);
+  assert.equal(result.config.real_mining_enabled, false);
+  assert.equal(result.changed, true);
+  assert.equal(result.messages.includes("Selected GPU was not available on this device; using Auto GPU."), true);
+  assert.equal(result.messages.includes("No hardware GPU detected; switched compute mode to CPU."), true);
+  assert.equal(result.messages.includes("CPU threads adjusted to 2 for this device."), true);
+  assert.equal(result.messages.includes("GPU limit adjusted to 100%."), true);
+});
+
+
+test("cpu kernel mode only enables midstate after the route certificate proves it", () => {
+  assert.equal(cpuKernelModeForRouteAlgorithm("double_sha256_midstate"), "midstate");
+  assert.equal(cpuKernelModeForRouteAlgorithm("double_sha256_full_header"), "full_header");
+  assert.equal(cpuKernelModeForRouteAlgorithm("double_sha256_pending_midstate"), "full_header");
+});
+test("runtime mining mode follows actual compute mode", () => {
+  assert.equal(miningModeForRuntime(false, "gpu", "hardcore"), "dream");
+  assert.equal(miningModeForRuntime(true, "gpu", "mining"), "hardcore");
+  assert.equal(miningModeForRuntime(true, "hybrid", "mining"), "hardcore");
+  assert.equal(miningModeForRuntime(true, "cpu", "solo"), "solo");
+  assert.equal(miningModeForRuntime(true, "cpu", "hardcore"), "mining");
+});
 test("hashrate formatting uses stable units", () => {
   assert.equal(formatHashrate(999), "999 H/s");
   assert.equal(formatHashrate(1_500), "1.50 KH/s");
@@ -314,6 +386,48 @@ test("config normalization shares backend port and worker defaults", () => {
   assert.equal(invalidPort.pool_port, 3333);
 });
 
+
+test("config normalization keeps external telemetry polling safe", () => {
+  const network = normalizeAppConfig(
+    validConfig({
+      external_hash_interface: "network",
+      external_hash_network_host: " bitaxe.local ",
+      external_hash_polling_enabled: true,
+      external_hash_poll_interval_seconds: 7_200,
+    }),
+    systemInfo,
+    devices,
+  );
+  const direct = normalizeAppConfig(
+    validConfig({
+      external_hash_interface: "direct",
+      external_hash_direct_port: " COM7 ",
+      external_hash_polling_enabled: true,
+      external_hash_poll_interval_seconds: 1,
+    }),
+    systemInfo,
+    devices,
+  );
+  const futureDirect = normalizeAppConfig(
+    validConfig({
+      external_hash_interface: "direct",
+      external_hash_direct_port: "COM7",
+      external_hash_direct_endpoint: " hid://miner-2 ",
+    }),
+    systemInfo,
+    devices,
+  );
+
+  for (const normalized of [network, direct, futureDirect]) {
+    assert.equal(normalized.external_hash_interface, "none");
+    assert.equal(normalized.external_hash_network_host, "");
+    assert.equal(normalized.external_hash_direct_port, "");
+    assert.equal(normalized.external_hash_direct_endpoint, "");
+    assert.equal(normalized.external_hash_polling_enabled, false);
+    assert.equal(normalized.external_hash_poll_interval_seconds, 60);
+  }
+});
+
 test("real mining start validation catches local configuration mistakes", () => {
   assert.equal(realMiningStartError(validConfig(), devices, true), null);
   assert.equal(
@@ -345,7 +459,18 @@ test("real mining start validation catches local configuration mistakes", () => 
       ],
       true,
     ),
-    "No hardware GPU detected. Switch to CPU or CPU + GPU mode, or update GPU drivers.",
+    "No hardware GPU detected. Switch to CPU mode, or update GPU drivers.",
+  );
+  assert.equal(
+    realMiningStartError(
+      validConfig({ compute_mode: "hybrid", gpu_enabled: true }),
+      [
+        { id: "auto", name: "Auto", simulated: true },
+        { id: "gpu-1", name: "Software Adapter", simulated: true },
+      ],
+      true,
+    ),
+    "No hardware GPU detected. Switch to CPU mode, or update GPU drivers.",
   );
 });
 
@@ -478,4 +603,105 @@ test("mining engine facade owns start stop status calls", async () => {
 
   assert.deepEqual(calls, ["prepare", "start-sim", "stop-sim"]);
   assert.equal(engine.status().kind, "simulation");
+});
+
+test("runtime mining profile applies safe automatic density recommendations", () => {
+  const recommendation = {
+    schemaVersion: 1,
+    mode: "run_density_default",
+    priority: "run",
+    selectedIntent: "best_efficiency",
+    canApplyProfile: true,
+    manualApprovalRequired: false,
+    autoApplyAllowed: true,
+    protectsLowPowerLane: true,
+    opensHighHashBurst: false,
+    externalMiningAllowed: false,
+    targetStepId: "gpu:25",
+    targetStepSummary: "GPU 25% density lane",
+    targetComputeMode: "gpu",
+    targetCpuThreads: 0,
+    targetGpuIntensityPercent: 25,
+    defaultPointRole: "max_efficiency",
+    defaultPointHashrate: 220_000_000,
+    defaultPointWatts: 12,
+    burstAllowed: false,
+    burstHashrate: null,
+    burstWatts: null,
+    recoveryCooldownSeconds: null,
+    recoveryObservedSeconds: null,
+    recoveryCooldownRemainingSeconds: null,
+    recoveryResumeAllowed: false,
+    recoveryResumeCondition: null,
+    recoveryQualityLossHashrate: null,
+    recoveryThrottleHashrateAtRisk: null,
+    guardrails: [],
+    summary: "Adopt measured density lane.",
+    nextStep: "Run density lane.",
+  };
+
+  const profile = resolveRuntimeMiningProfile(
+    validConfig({ compute_mode: "gpu", gpu_enabled: true, gpu_intensity_percent: 75 }),
+    systemInfo,
+    recommendation,
+  );
+
+  assert.equal(profile.appliedRecommendation, true);
+  assert.equal(profile.source, "runtime_recommendation");
+  assert.equal(profile.cpuThreads, 0);
+  assert.equal(profile.gpuIntensityPercent, 25);
+  assert.match(profile.reason, /GPU 25% density lane/);
+});
+
+test("runtime mining profile keeps manual burst and compute-mode changes out of auto start", () => {
+  const baseRecommendation = {
+    schemaVersion: 1,
+    mode: "manual_burst",
+    priority: "manual",
+    selectedIntent: "best_hashrate",
+    canApplyProfile: true,
+    manualApprovalRequired: true,
+    autoApplyAllowed: false,
+    protectsLowPowerLane: true,
+    opensHighHashBurst: true,
+    externalMiningAllowed: false,
+    targetStepId: "gpu:100",
+    targetStepSummary: "GPU 100% burst",
+    targetComputeMode: "gpu",
+    targetCpuThreads: 0,
+    targetGpuIntensityPercent: 100,
+    defaultPointRole: "balanced",
+    defaultPointHashrate: 220_000_000,
+    defaultPointWatts: 12,
+    burstAllowed: true,
+    burstHashrate: 410_000_000,
+    burstWatts: 30,
+    recoveryCooldownSeconds: null,
+    recoveryObservedSeconds: null,
+    recoveryCooldownRemainingSeconds: null,
+    recoveryResumeAllowed: false,
+    recoveryResumeCondition: null,
+    recoveryQualityLossHashrate: null,
+    recoveryThrottleHashrateAtRisk: null,
+    guardrails: [],
+    summary: "Manual burst only.",
+    nextStep: "Require explicit manual burst.",
+  };
+
+  const manualBurst = resolveRuntimeMiningProfile(
+    validConfig({ compute_mode: "gpu", gpu_enabled: true, gpu_intensity_percent: 25 }),
+    systemInfo,
+    baseRecommendation,
+  );
+  const computeModeMismatch = resolveRuntimeMiningProfile(
+    validConfig({ compute_mode: "cpu", cpu_threads: 1, performance_preset: "eco" }),
+    systemInfo,
+    { ...baseRecommendation, mode: "run_density_default", manualApprovalRequired: false, autoApplyAllowed: true, opensHighHashBurst: false },
+  );
+
+  assert.equal(manualBurst.appliedRecommendation, false);
+  assert.equal(manualBurst.gpuIntensityPercent, 25);
+  assert.equal(computeModeMismatch.appliedRecommendation, false);
+  assert.equal(computeModeMismatch.cpuThreads, 1);
+  assert.match(computeModeMismatch.reason, /targets gpu/i);
 });

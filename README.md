@@ -11,7 +11,7 @@ This project does not promise or guarantee any financial return.
 
 ## Features
 
-- 360x260 desktop pet window
+- 420x560 resizable desktop pet window with a 360x360 minimum size
 - Toggleable **Compact Mode** (default scaled-up desktop pet ornament with a mini stats line) and **Detail Mode** (complete metrics grid and log ticker)
 - Always-on-top window with a user-controlled `PIN` / `FREE` toggle
 - System tray icon with `Show`, `Hide`, `Open Logs`, and `Quit`
@@ -30,7 +30,7 @@ This project does not promise or guarantee any financial return.
 - Jackpot / block-candidate detection when a header hash meets the network
   target from the current Stratum job's `nbits`
 - App log directory file logging with a 1 MiB rotation limit (`mining.log` and
-  `mining.log.1`) plus `found_block.json` for a block candidate event
+  `mining.log.1`) plus timestamped `found_block_*.json` files for block candidate events
 - Optional one-way notifications for Jackpot, share accepted, connection error,
   and coarse heartbeat status via local Windows notification or webhook
 - Detail Mode diagnostic snapshot copy/save with schema version, app version,
@@ -111,7 +111,7 @@ The Rust backend owns all real mining work:
    for the immediate local `Stopped` state emitted after the user clicks `STOP`.
 8. Compare each candidate header hash against the network target derived from
    `nbits`; if it meets that target, emit a local `block-found` event, write
-   `found_block.json`, and keep the normal share-submission path active.
+   a timestamped `found_block_*.json` record, and keep the normal share-submission path active.
 
 The current client is intentionally small. It supports plain Stratum v1 TCP,
 not Stratum TLS, Stratum v2, proxy mode, failover pools, remote management, or
@@ -140,14 +140,22 @@ Notifications are one-way only. Local Windows notifications and webhooks can be
 triggered by app events, but there is no remote command polling, remote control,
 or inbound webhook listener.
 
-The Detail Mode `COPY DIAG` action copies a local diagnostic JSON snapshot to
-the clipboard, and `SAVE DIAG` writes the same JSON to the app log folder. It
-is meant for troubleshooting and intentionally excludes the BTC address and
-webhook URL. Recent log lines are redacted against the current BTC address and
-webhook URL before export. The snapshot includes a diagnostic schema version,
+The Detail Mode `COPY DIAG` action copies a local diagnostic snapshot to the
+clipboard, and `SAVE DIAG` writes the backend diagnostic JSON to the app log
+folder. It is meant for troubleshooting and intentionally excludes the BTC
+address, pool password, webhook URL, legacy external hash fields, and Stratum
+message payloads from the frontend optimization evidence section. Recent log
+lines are redacted against the current BTC address, pool password, and webhook
+URL before export. The backend snapshot includes a diagnostic schema version,
 app version, single app identifier, configuration summary, GPU device list, log
 path, recent mining log lines, latest connection error when one is present, and
-the names of fields that were redacted.
+the names of fields that were redacted. The copied frontend evidence section
+adds local tuning sample counts, measured-power/share evidence status, external
+efficiency trend, qualified/provisional operating candidates for lowest power,
+max efficiency, balanced, and max hashrate goals, and the next missing
+optimization evidence gate. Candidates become qualified only after measured
+watts, at least three share events, low share waste, a stable 15 minute runtime
+window, and safe thermal state are present.
 
 The settings panel pool diagnostic is an active connection check. It does not
 mine or submit shares, but it may send the configured public BTC address and
@@ -254,7 +262,7 @@ The Jackpot webhook body is intentionally narrow:
   "hash": "...",
   "difficulty": 0,
   "timestamp": "...",
-  "note": "found_block.json saved locally"
+  "note": "found_block_*.json saved locally"
 }
 ```
 
@@ -348,7 +356,7 @@ app-specific log folder. The Detail Mode `COPY LOG PATH` button copies that
 local log folder path, `COPY DIAG` copies a sanitized diagnostic snapshot, and
 `SAVE DIAG` writes it to the same folder. The regular mining log is
 `mining.log`; if a block candidate is detected, the event is also saved as
-`found_block.json`.
+a timestamped `found_block_*.json` file.
 
 ## Run and build commands
 

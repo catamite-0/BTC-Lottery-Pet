@@ -1,12 +1,24 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Dispatch, SetStateAction } from "react";
+import { parseBackendDiagnosticBridge } from "../domain/diagnosticSnapshotBridge";
 import { formatError } from "../formatting";
+
+interface FrontendDiagnosticSection {
+  title: string;
+  body: string;
+  bodyJson?: unknown;
+}
+
+interface FrontendDiagnosticContext {
+  backendDiagnosticSnapshot: ReturnType<typeof parseBackendDiagnosticBridge>;
+}
 
 interface UseDiagnosticsActionsArgs {
   runningInTauri: boolean;
   setErrorMessage: Dispatch<SetStateAction<string | null>>;
   setPetLogMessage: (message: string) => void;
   getDevLogSnapshot?: () => string;
+  getFrontendDiagnosticSections?: (context: FrontendDiagnosticContext) => FrontendDiagnosticSection[];
 }
 
 export function useDiagnosticsActions({
@@ -14,7 +26,23 @@ export function useDiagnosticsActions({
   setErrorMessage,
   setPetLogMessage,
   getDevLogSnapshot,
+  getFrontendDiagnosticSections,
 }: UseDiagnosticsActionsArgs) {
+
+  const formatFrontendDiagnosticSection = (section: FrontendDiagnosticSection) =>
+    `--- ${section.title} ---\n${section.body}`;
+  const frontendSectionsForSnapshot = (snapshot: string) => {
+    const backendDiagnosticSnapshot = parseBackendDiagnosticBridge(snapshot);
+    return getFrontendDiagnosticSections?.({ backendDiagnosticSnapshot }) ?? [];
+  };
+  const structuredFrontendSectionsForSnapshot = (snapshot: string) => frontendSectionsForSnapshot(snapshot)
+    .map((section) => {
+      try {
+        return { ...section, bodyJson: JSON.parse(section.body) };
+      } catch {
+        return section;
+      }
+    });
   const openLogs = async () => {
     setErrorMessage(null);
 
@@ -50,10 +78,16 @@ export function useDiagnosticsActions({
 
     try {
       const snapshot = await invoke<string>("get_diagnostic_snapshot");
+
+      const frontendSections = frontendSectionsForSnapshot(snapshot);
+
       const devLogSnapshot = getDevLogSnapshot?.();
-      await navigator.clipboard.writeText(
-        devLogSnapshot ? `${snapshot}\n\n--- Frontend DEV LOG ---\n${devLogSnapshot}` : snapshot,
-      );
+      const diagnosticSections = [
+        snapshot,
+        ...frontendSections.map(formatFrontendDiagnosticSection),
+        devLogSnapshot ? `--- Frontend DEV LOG ---\n${devLogSnapshot}` : "",
+      ].filter(Boolean);
+      await navigator.clipboard.writeText(diagnosticSections.join("\n\n"));
       setPetLogMessage("Diagnostic snapshot copied.");
     } catch (error) {
       if (runningInTauri) {
@@ -68,7 +102,9 @@ export function useDiagnosticsActions({
     setErrorMessage(null);
 
     try {
-      const path = await invoke<string>("save_diagnostic_snapshot");
+      const snapshot = await invoke<string>("get_diagnostic_snapshot");
+      const frontendSections = structuredFrontendSectionsForSnapshot(snapshot);
+      await invoke("save_diagnostic_snapshot", { frontendSections });
       setPetLogMessage("Diagnostic snapshot saved.");
     } catch (error) {
       if (runningInTauri) {

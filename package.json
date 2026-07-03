@@ -1,12 +1,12 @@
 {
   "name": "btc-lottery-pet",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.8.0",
   "type": "module",
   "scripts": {
     "dev": "vite --configLoader runner",
     "build": "tsc && vite build --configLoader runner",
-    "test:frontend": "tsc -p tsconfig.frontend-test.json && node --test test/miningLogic.test.mjs",
+    "test:frontend": "tsc -p tsconfig.frontend-test.json && node scripts/run-frontend-tests.mjs",
     "preview": "vite preview --configLoader runner",
     "clean:dev:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean-dev.ps1 -WhatIf",
     "clean:dev": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean-dev.ps1",

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.8.0 - 2026-07-03
+
+### Changed
+
+- Reworked the settings panel into navigable sections with a fixed header/action area and safer small-window scrolling.
+- Moved mining engine selection behind a frontend controller hook so `App` no longer creates concrete engines directly.
+- Split the backend algorithm kernel benchmark diagnostics into a dedicated Rust module while keeping Tauri command protocols stable.
+- Simplified frontend test execution to auto-discover `test/*.test.mjs` files.
+
+### Hardened
+
+- Moved external hash runtime support to the archive branch and sealed the mainline UI/backend to local CPU/GPU mining only, while keeping compatibility fields as disabled interfaces.
+- Preserved local-only mining algorithm behavior: consensus double SHA256, Stratum flow, nonce handling, and share submission remain unchanged.
+
+### Validation
+
+- `npm run test:frontend`
+- `npm run build`
+- `npm audit --omit=dev`
+- `cargo test --manifest-path src-tauri\Cargo.toml`
+- `cargo test --manifest-path src-tauri\Cargo.toml --no-run`
 ## 0.7.0 - 2026-06-13
 
 ### Added

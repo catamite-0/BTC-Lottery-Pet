@@ -68,7 +68,7 @@ function Invoke-NpmOrNode {
 Invoke-NpmOrNode "Frontend unit tests" "test:frontend" {
   & $node ".\node_modules\typescript\bin\tsc" -p "tsconfig.frontend-test.json"
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-  & $node "--test" "test\miningLogic.test.mjs"
+  & $node "scripts\run-frontend-tests.mjs"
 }
 
 Invoke-NpmOrNode "Frontend production build" "build" {

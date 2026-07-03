@@ -25,6 +25,8 @@ const MAX_EXTRANONCE2_BYTES: usize = 16;
 const MAX_PENDING_SUBMISSIONS: usize = 128;
 const MAX_SHARE_SUBMISSIONS_PER_TICK: usize = 16;
 const SHARE_QUEUE_CAPACITY: usize = 256;
+const MAX_VALID_PREVIOUS_JOBS: usize = 4;
+const PREVIOUS_JOB_SHARE_GRACE: Duration = Duration::from_secs(60);
 const DEFAULT_POOL_PASSWORD: &str = "x";
 const MAX_POOL_PASSWORD_BYTES: usize = 128;
 // Below this, the share target saturates the full 256-bit hash space and every
@@ -79,6 +81,14 @@ fn should_rotate_log(current_bytes: u64, incoming_bytes: usize) -> bool {
     current_bytes.saturating_add(incoming_bytes as u64) > MAX_LOG_FILE_BYTES
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CpuKernelMode {
+    #[default]
+    Midstate,
+    FullHeader,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RealMiningSettings {
@@ -96,6 +106,8 @@ pub struct RealMiningSettings {
     pub gpu_device_id: Option<String>,
     #[serde(default = "default_gpu_intensity")]
     pub gpu_intensity_percent: u8,
+    #[serde(default)]
+    pub cpu_kernel_mode: CpuKernelMode,
 }
 
 fn default_gpu_intensity() -> u8 {
@@ -244,6 +256,8 @@ pub struct MiningStats {
     pub hashrate: f64,
     pub accepted_shares: u64,
     pub rejected_shares: u64,
+    pub stale_shares_dropped: u64,
+    pub queued_shares_dropped: u64,
     pub best_difficulty: f64,
     pub share_difficulty: f64,
     pub current_job_id: String,
@@ -273,6 +287,8 @@ impl MiningStats {
             hashrate: 0.0,
             accepted_shares: 0,
             rejected_shares: 0,
+            stale_shares_dropped: 0,
+            queued_shares_dropped: 0,
             best_difficulty: 0.0,
             share_difficulty: 0.0,
             current_job_id: String::new(),
@@ -327,6 +343,7 @@ impl MiningController {
 #[derive(Clone)]
 pub(crate) struct JobTemplate {
     pub(crate) generation: u64,
+    pub(crate) clean_jobs: bool,
     pub(crate) job_id: String,
     pub(crate) prev_hash: String,
     pub(crate) coinbase1: String,
@@ -341,13 +358,36 @@ pub(crate) struct JobTemplate {
     pub(crate) share_difficulty: f64,
 }
 
+#[derive(Clone)]
+pub(crate) struct ValidPreviousJob {
+    generation: u64,
+    job_id: String,
+    expires_at: Instant,
+}
+
+impl ValidPreviousJob {
+    fn from_job(job: &JobTemplate, expires_at: Instant) -> Self {
+        Self {
+            generation: job.generation,
+            job_id: job.job_id.clone(),
+            expires_at,
+        }
+    }
+
+    fn matches_share(&self, share: &ShareSubmission) -> bool {
+        self.generation == share.generation && self.job_id == share.job_id
+    }
+}
 pub(crate) struct SharedMiningState {
     pub(crate) stop: Arc<AtomicBool>,
     pub(crate) job: RwLock<Option<JobTemplate>>,
+    pub(crate) valid_previous_jobs: Mutex<Vec<ValidPreviousJob>>,
     pub(crate) job_generation: AtomicU64,
     pub(crate) hashes: AtomicU64,
     pub(crate) accepted_shares: AtomicU64,
     pub(crate) rejected_shares: AtomicU64,
+    pub(crate) stale_shares_dropped: AtomicU64,
+    pub(crate) queued_shares_dropped: AtomicU64,
     pub(crate) best_difficulty_bits: AtomicU64,
     pub(crate) connection_status: Mutex<String>,
     pub(crate) gpu_backend: Mutex<String>,
@@ -362,10 +402,13 @@ impl SharedMiningState {
         Self {
             stop,
             job: RwLock::new(None),
+            valid_previous_jobs: Mutex::new(Vec::new()),
             job_generation: AtomicU64::new(0),
             hashes: AtomicU64::new(0),
             accepted_shares: AtomicU64::new(0),
             rejected_shares: AtomicU64::new(0),
+            stale_shares_dropped: AtomicU64::new(0),
+            queued_shares_dropped: AtomicU64::new(0),
             best_difficulty_bits: AtomicU64::new(0.0_f64.to_bits()),
             connection_status: Mutex::new("Starting".into()),
             gpu_backend: Mutex::new(String::new()),
@@ -409,14 +452,57 @@ impl SharedMiningState {
 
     pub(crate) fn set_job(&self, mut job: JobTemplate) {
         job.generation = self.job_generation.fetch_add(1, Ordering::AcqRel) + 1;
-        *self.job.write().unwrap_or_else(|e| e.into_inner()) = Some(job);
+        let mut active_job = self.job.write().unwrap_or_else(|e| e.into_inner());
+        self.update_previous_job_validity(active_job.as_ref(), &job);
+        *active_job = Some(job);
     }
 
     pub(crate) fn clear_job(&self) {
         self.job_generation.fetch_add(1, Ordering::AcqRel);
         *self.job.write().unwrap_or_else(|e| e.into_inner()) = None;
+        self.valid_previous_jobs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
+    fn update_previous_job_validity(&self, previous: Option<&JobTemplate>, next: &JobTemplate) {
+        let now = Instant::now();
+        let mut valid_previous_jobs = self
+            .valid_previous_jobs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        valid_previous_jobs.retain(|job| job.expires_at > now);
+
+        if next.clean_jobs {
+            valid_previous_jobs.clear();
+            return;
+        }
+
+        let Some(previous) = previous else {
+            return;
+        };
+
+        if previous.prev_hash != next.prev_hash {
+            valid_previous_jobs.clear();
+            return;
+        }
+
+        valid_previous_jobs.retain(|job| {
+            job.generation != previous.generation || job.job_id != previous.job_id
+        });
+        valid_previous_jobs.push(ValidPreviousJob::from_job(
+            previous,
+            now + PREVIOUS_JOB_SHARE_GRACE,
+        ));
+
+        let overflow = valid_previous_jobs
+            .len()
+            .saturating_sub(MAX_VALID_PREVIOUS_JOBS);
+        if overflow > 0 {
+            let _ = valid_previous_jobs.drain(0..overflow);
+        }
+    }
     pub(crate) fn update_best_difficulty(&self, difficulty: f64) {
         let mut current = self.best_difficulty_bits.load(Ordering::Relaxed);
 
@@ -433,6 +519,10 @@ impl SharedMiningState {
         }
     }
 
+    pub(crate) fn record_queued_share_drop(&self) {
+        self.queued_shares_dropped.fetch_add(1, Ordering::Relaxed);
+    }
+
     fn snapshot(&self, hashrate: f64) -> MiningStats {
         let (current_job_id, share_difficulty) = self
             .job
@@ -446,6 +536,8 @@ impl SharedMiningState {
             hashrate,
             accepted_shares: self.accepted_shares.load(Ordering::Relaxed),
             rejected_shares: self.rejected_shares.load(Ordering::Relaxed),
+            stale_shares_dropped: self.stale_shares_dropped.load(Ordering::Relaxed),
+            queued_shares_dropped: self.queued_shares_dropped.load(Ordering::Relaxed),
             best_difficulty: f64::from_bits(self.best_difficulty_bits.load(Ordering::Relaxed)),
             share_difficulty,
             current_job_id,
@@ -473,6 +565,7 @@ impl SharedMiningState {
 
 #[derive(Clone)]
 pub(crate) struct ShareSubmission {
+    pub(crate) generation: u64,
     pub(crate) job_id: String,
     pub(crate) extranonce2: String,
     pub(crate) ntime: String,
@@ -606,6 +699,17 @@ fn run_stratum_connection(
                 break;
             };
 
+            if !should_submit_share(shared, &share) {
+                log_message(
+                    app,
+                    &format!(
+                        "Stale share dropped before submit: job_id={}, nonce={:08x}",
+                        share.job_id, share.nonce
+                    ),
+                );
+                continue;
+            }
+
             request_id += 1;
 
             // Prune stale entries to prevent unbounded growth from unresponsive pools
@@ -658,7 +762,7 @@ fn run_stratum_connection(
             let elapsed = last_report.elapsed().as_secs_f64();
             let current_hash_count = shared.hashes.load(Ordering::Relaxed);
             let raw_hashrate = current_hash_count.saturating_sub(last_hash_count) as f64 / elapsed;
-            // Exponential moving average for smooth display (α = 0.3)
+            // Exponential moving average for smooth display (ÃŽÂ± = 0.3)
             smoothed_hashrate = if smoothed_hashrate == 0.0 {
                 raw_hashrate
             } else {
@@ -1111,9 +1215,13 @@ fn handle_server_message_with_logger(
                 if let Some(job) = parse_job(message.get("params"), protocol)? {
                     let job_id = job.job_id.clone();
                     let diff = job.share_difficulty;
+                    let clean_jobs = job.clean_jobs;
                     shared.set_job(job);
                     shared.set_connection_status("Mining");
-                    log(&format!("Job received: id={}, diff={}", job_id, diff));
+                    log(&format!(
+                        "Job received: id={}, diff={}, clean_jobs={}",
+                        job_id, diff, clean_jobs
+                    ));
                 }
             }
             _ => {}
@@ -1225,9 +1333,13 @@ fn parse_job(
 
     let nbits = required_string(params, 6, "nbits")?;
     let network_target = target_from_nbits(&nbits)?;
+    let clean_jobs = params[8]
+        .as_bool()
+        .ok_or_else(|| "pool sent an invalid clean_jobs flag".to_string())?;
 
     Ok(Some(JobTemplate {
         generation: 0,
+        clean_jobs,
         job_id: required_string(params, 0, "job id")?,
         prev_hash: required_string(params, 1, "previous hash")?,
         coinbase1: required_string(params, 2, "coinbase prefix")?,
@@ -1347,6 +1459,72 @@ fn submission_budget(pending_submissions: usize) -> usize {
     MAX_SHARE_SUBMISSIONS_PER_TICK.min(MAX_PENDING_SUBMISSIONS.saturating_sub(pending_submissions))
 }
 
+fn share_matches_current_job(shared: &SharedMiningState, share: &ShareSubmission) -> bool {
+    shared
+        .job
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_ref()
+        .is_some_and(|job| job.generation == share.generation && job.job_id == share.job_id)
+}
+
+fn share_matches_valid_previous_job(shared: &SharedMiningState, share: &ShareSubmission) -> bool {
+    let now = Instant::now();
+    let mut valid_previous_jobs = shared
+        .valid_previous_jobs
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    valid_previous_jobs.retain(|job| job.expires_at > now);
+    valid_previous_jobs.iter().any(|job| job.matches_share(share))
+}
+
+fn should_submit_share(shared: &SharedMiningState, share: &ShareSubmission) -> bool {
+    if share_matches_current_job(shared, share) || share_matches_valid_previous_job(shared, share) {
+        return true;
+    }
+
+    shared.stale_shares_dropped.fetch_add(1, Ordering::Relaxed);
+    false
+}
+struct BestDifficultyTracker {
+    target_words: [u32; 8],
+}
+
+impl BestDifficultyTracker {
+    fn new(shared: &SharedMiningState) -> Self {
+        let mut tracker = Self {
+            target_words: [u32::MAX; 8],
+        };
+        tracker.refresh(shared);
+        tracker
+    }
+
+    fn refresh(&mut self, shared: &SharedMiningState) {
+        let current = f64::from_bits(shared.best_difficulty_bits.load(Ordering::Relaxed));
+        self.target_words = if current > 0.0 && current.is_finite() {
+            crate::gpu_miner::difficulty_to_target_words(current)
+        } else {
+            [u32::MAX; 8]
+        };
+    }
+
+    fn target_words(&self) -> &[u32; 8] {
+        &self.target_words
+    }
+
+    fn record_words_improvement(
+        &mut self,
+        shared: &SharedMiningState,
+        hash_words: &[u32; 8],
+    ) -> f64 {
+        let hash = crate::gpu_miner::hash_words_to_bytes(hash_words);
+        let difficulty = difficulty_from_hash(&hash);
+        shared.update_best_difficulty(difficulty);
+        self.refresh(shared);
+        difficulty
+    }
+}
+
 fn validate_extranonce2_size(size: usize) -> Result<usize, String> {
     if size == 0 || size > MAX_EXTRANONCE2_BYTES {
         return Err(format!(
@@ -1377,6 +1555,7 @@ fn spawn_hash_workers(
         let worker_count = total_workers;
         let worker_app = app.clone();
         let worker_pool = pool.clone();
+        let cpu_kernel_mode = settings.cpu_kernel_mode;
 
         match thread::Builder::new()
             .name(format!("btc-lottery-hash-{worker_index}"))
@@ -1388,6 +1567,7 @@ fn spawn_hash_workers(
                     share_sender,
                     worker_app,
                     worker_pool,
+                    cpu_kernel_mode,
                 )
             }) {
             Ok(handle) => workers.push(handle),
@@ -1434,24 +1614,49 @@ pub(crate) fn hash_loop(
     share_sender: SyncSender<ShareSubmission>,
     app: AppHandle,
     pool: String,
+    cpu_kernel_mode: CpuKernelMode,
 ) {
+    let mut best_tracker = BestDifficultyTracker::new(&shared);
+
     while !shared.stop.load(Ordering::Acquire) {
         let Some(job) = shared.job.read().unwrap_or_else(|e| e.into_inner()).clone() else {
             thread::sleep(Duration::from_millis(25));
             continue;
         };
 
+        let share_target = crate::gpu_miner::difficulty_to_target_words(job.share_difficulty);
+        let network_target = crate::gpu_miner::target_bytes_to_words(&job.network_target);
         let mut extranonce_counter = worker_index as u64 + 1;
 
         while !shared.stop.load(Ordering::Acquire)
             && shared.job_generation.load(Ordering::Acquire) == job.generation
         {
             let extranonce2 = extranonce2_hex(extranonce_counter, job.extranonce2_size);
-            let Ok(mut header) = build_header(&job, &extranonce2) else {
-                shared.set_connection_status("Invalid pool job");
-                shared.clear_job();
-                break;
+            let (mut header, header_work) = match cpu_kernel_mode {
+                CpuKernelMode::Midstate => match build_header_work(&job, &extranonce2) {
+                    Ok(work) => (Vec::new(), work),
+                    Err(_) => {
+                        shared.set_connection_status("Invalid pool job");
+                        shared.clear_job();
+                        break;
+                    }
+                },
+                CpuKernelMode::FullHeader => {
+                    let Ok(header) = build_header(&job, &extranonce2) else {
+                        shared.set_connection_status("Invalid pool job");
+                        shared.clear_job();
+                        break;
+                    };
+                    let Ok(work) = header_work_from_header(&header) else {
+                        shared.set_connection_status("Invalid pool job");
+                        shared.clear_job();
+                        break;
+                    };
+                    (header, work)
+                }
             };
+            let mut midstate_hasher =
+                crate::gpu_miner::ReusableMidstateHasher::new(&header_work.tail);
 
             let mut completed_nonce_space = true;
             for nonce in 0..=u32::MAX {
@@ -1459,6 +1664,7 @@ pub(crate) fn hash_loop(
                     if nonce > 0 {
                         shared.hashes.fetch_add(1024, Ordering::Relaxed);
                     }
+                    best_tracker.refresh(&shared);
                     if shared.stop.load(Ordering::Acquire)
                         || shared.job_generation.load(Ordering::Acquire) != job.generation
                     {
@@ -1472,24 +1678,47 @@ pub(crate) fn hash_loop(
                     }
                 }
 
-                header[76..80].copy_from_slice(&nonce.to_le_bytes());
-                let hash = double_sha256(&header);
-                let difficulty = difficulty_from_hash(&hash);
-                shared.update_best_difficulty(difficulty);
+                let hash_words = cpu_kernel_hash_words(
+                    cpu_kernel_mode,
+                    &mut header,
+                    &header_work,
+                    &mut midstate_hasher,
+                    nonce,
+                );
+                let [improves_best, meets_network, meets_share] =
+                    crate::gpu_miner::hash_words_meet_three_targets(
+                        &hash_words,
+                        best_tracker.target_words(),
+                        &network_target,
+                        &share_target,
+                    );
+                let mut difficulty = improves_best
+                    .then(|| best_tracker.record_words_improvement(&shared, &hash_words));
 
-                if hash_meets_network_target(&hash, &job.network_target) {
+                if meets_network {
+                    let hash = crate::gpu_miner::hash_words_to_bytes(&hash_words);
+                    let difficulty = difficulty.take().unwrap_or_else(|| {
+                        let difficulty = difficulty_from_hash(&hash);
+                        shared.update_best_difficulty(difficulty);
+                        best_tracker.refresh(&shared);
+                        difficulty
+                    });
                     let event =
                         found_block_event(&job, nonce, &extranonce2, &hash, difficulty, &pool);
                     record_block_candidate(&app, &event);
                 }
 
-                if difficulty >= job.share_difficulty {
-                    if shared.stop.load(Ordering::Acquire) {
+                if meets_share {
+                    best_tracker.refresh(&shared);
+                    if shared.stop.load(Ordering::Acquire)
+                        || shared.job_generation.load(Ordering::Acquire) != job.generation
+                    {
                         completed_nonce_space = false;
                         break;
                     }
 
                     let submission = ShareSubmission {
+                        generation: job.generation,
                         job_id: job.job_id.clone(),
                         extranonce2: extranonce2.clone(),
                         ntime: job.ntime.clone(),
@@ -1499,7 +1728,8 @@ pub(crate) fn hash_loop(
                     match share_sender.try_send(submission) {
                         Ok(()) => {}
                         Err(TrySendError::Full(_)) => {
-                            eprintln!("[WARN] share queue full — share dropped");
+                            shared.record_queued_share_drop();
+                            eprintln!("[WARN] share queue full Ã¢â‚¬â€ share dropped");
                         }
                         Err(TrySendError::Disconnected(_)) => return,
                     }
@@ -1519,24 +1749,67 @@ pub(crate) fn hash_loop(
     }
 }
 
-pub(crate) fn build_header(job: &JobTemplate, extranonce2: &str) -> Result<Vec<u8>, String> {
+fn cpu_kernel_hash_words(
+    mode: CpuKernelMode,
+    header: &mut [u8],
+    work: &HeaderWork,
+    midstate_hasher: &mut crate::gpu_miner::ReusableMidstateHasher,
+    nonce: u32,
+) -> [u32; 8] {
+    match mode {
+        CpuKernelMode::Midstate => midstate_hasher.double_sha256_words(&work.midstate, nonce),
+        CpuKernelMode::FullHeader => {
+            header[76..80].copy_from_slice(&nonce.to_le_bytes());
+            let hash = double_sha256(header);
+            crate::gpu_miner::target_bytes_to_words(&hash)
+        }
+    }
+}
+
+fn build_merkle_root(job: &JobTemplate, extranonce2: &str) -> Result<[u8; 32], String> {
     let mut coinbase = decode_hex(&job.coinbase1)?;
     coinbase.extend(decode_hex(&job.extranonce1)?);
     coinbase.extend(decode_hex(extranonce2)?);
     coinbase.extend(decode_hex(&job.coinbase2)?);
 
-    let mut merkle_root = double_sha256(&coinbase).to_vec();
+    let mut merkle_root = double_sha256(&coinbase);
     for branch in &job.merkle_branches {
-        merkle_root.extend(decode_hex(branch)?);
-        merkle_root = double_sha256(&merkle_root).to_vec();
+        let branch = decode_hex(branch)?;
+        let mut material = Vec::with_capacity(merkle_root.len() + branch.len());
+        material.extend_from_slice(&merkle_root);
+        material.extend(branch);
+        merkle_root = double_sha256(&material);
     }
 
+    Ok(merkle_root)
+}
+
+fn reversed_header_word(value: &str, field: &str) -> Result<[u8; 4], String> {
+    let bytes = reversed_hex(value)?;
+    bytes
+        .try_into()
+        .map_err(|bytes: Vec<u8>| format!("pool sent {field} as {} bytes, expected 4", bytes.len()))
+}
+
+pub(crate) fn build_header(job: &JobTemplate, extranonce2: &str) -> Result<Vec<u8>, String> {
+    let merkle_root = build_merkle_root(job, extranonce2)?;
+    let version = reversed_header_word(&job.version, "version")?;
+    let prev_hash = word_swapped_hex(&job.prev_hash)?;
+    if prev_hash.len() != 32 {
+        return Err(format!(
+            "pool sent previous hash as {} bytes, expected 32",
+            prev_hash.len()
+        ));
+    }
+    let ntime = reversed_header_word(&job.ntime, "ntime")?;
+    let nbits = reversed_header_word(&job.nbits, "nbits")?;
+
     let mut header = Vec::with_capacity(80);
-    header.extend(reversed_hex(&job.version)?);
-    header.extend(word_swapped_hex(&job.prev_hash)?);
-    header.extend(merkle_root);
-    header.extend(reversed_hex(&job.ntime)?);
-    header.extend(reversed_hex(&job.nbits)?);
+    header.extend_from_slice(&version);
+    header.extend_from_slice(&prev_hash);
+    header.extend_from_slice(&merkle_root);
+    header.extend_from_slice(&ntime);
+    header.extend_from_slice(&nbits);
     header.extend([0_u8; 4]);
 
     if header.len() != 80 {
@@ -1547,6 +1820,214 @@ pub(crate) fn build_header(job: &JobTemplate, extranonce2: &str) -> Result<Vec<u
     }
 
     Ok(header)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HeaderWork {
+    pub(crate) midstate: [u32; 8],
+    pub(crate) tail: [u32; 3],
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HeaderWorkTemplate {
+    midstate: [u32; 8],
+    merkle_tail: [u8; 4],
+    nbits: [u8; 4],
+}
+
+impl HeaderWorkTemplate {
+    pub(crate) fn work_for_ntime(&self, ntime: &str) -> Result<HeaderWork, String> {
+        let ntime = reversed_header_word(ntime, "ntime")?;
+        Ok(HeaderWork {
+            midstate: self.midstate,
+            tail: [
+                u32::from_le_bytes(self.merkle_tail),
+                u32::from_le_bytes(ntime),
+                u32::from_le_bytes(self.nbits),
+            ],
+        })
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct HeaderHashBenchmark {
+    pub(crate) nonce_count: u64,
+    pub(crate) full_header_duration_micros: u128,
+    pub(crate) midstate_duration_micros: u128,
+    pub(crate) full_header_hashrate: f64,
+    pub(crate) midstate_hashrate: f64,
+    pub(crate) speedup_ratio: f64,
+    pub(crate) checksum: u64,
+}
+
+pub(crate) fn build_header_work_template(
+    job: &JobTemplate,
+    extranonce2: &str,
+) -> Result<HeaderWorkTemplate, String> {
+    let merkle_root = build_merkle_root(job, extranonce2)?;
+    let version = reversed_header_word(&job.version, "version")?;
+    let prev_hash = word_swapped_hex(&job.prev_hash)?;
+    if prev_hash.len() != 32 {
+        return Err(format!(
+            "pool sent previous hash as {} bytes, expected 32",
+            prev_hash.len()
+        ));
+    }
+
+    let mut first_block = [0_u8; 64];
+    first_block[0..4].copy_from_slice(&version);
+    first_block[4..36].copy_from_slice(&prev_hash);
+    first_block[36..64].copy_from_slice(&merkle_root[0..28]);
+
+    let merkle_tail: [u8; 4] = merkle_root[28..32]
+        .try_into()
+        .map_err(|_| "validated merkle root is missing tail bytes".to_string())?;
+    let nbits = reversed_header_word(&job.nbits, "nbits")?;
+
+    Ok(HeaderWorkTemplate {
+        midstate: crate::gpu_miner::sha256_midstate(&first_block),
+        merkle_tail,
+        nbits,
+    })
+}
+
+pub(crate) fn build_header_work(
+    job: &JobTemplate,
+    extranonce2: &str,
+) -> Result<HeaderWork, String> {
+    build_header_work_template(job, extranonce2)?.work_for_ntime(&job.ntime)
+}
+
+pub(crate) fn header_work_from_header(header: &[u8]) -> Result<HeaderWork, String> {
+    if header.len() != 80 {
+        return Err(format!(
+            "midstate work requires an 80-byte block header, got {} bytes",
+            header.len()
+        ));
+    }
+
+    let first_block: [u8; 64] = header[0..64]
+        .try_into()
+        .map_err(|_| "validated block header is missing the first SHA-256 block".to_string())?;
+    let midstate = crate::gpu_miner::sha256_midstate(&first_block);
+    let tail = [
+        u32::from_le_bytes(
+            header[64..68]
+                .try_into()
+                .map_err(|_| "validated block header is missing tail word 0".to_string())?,
+        ),
+        u32::from_le_bytes(
+            header[68..72]
+                .try_into()
+                .map_err(|_| "validated block header is missing tail word 1".to_string())?,
+        ),
+        u32::from_le_bytes(
+            header[72..76]
+                .try_into()
+                .map_err(|_| "validated block header is missing tail word 2".to_string())?,
+        ),
+    ];
+
+    Ok(HeaderWork { midstate, tail })
+}
+const MAX_HEADER_HASH_BENCHMARK_NONCES: u32 = 1_000_000;
+pub(crate) fn benchmark_header_hash_paths(
+    header: &[u8],
+    nonce_count: u32,
+) -> Result<HeaderHashBenchmark, String> {
+    if nonce_count == 0 {
+        return Err("header hash benchmark requires at least one nonce".into());
+    }
+    if nonce_count > MAX_HEADER_HASH_BENCHMARK_NONCES {
+        return Err(format!(
+            "header hash benchmark is capped at {} nonces",
+            MAX_HEADER_HASH_BENCHMARK_NONCES
+        ));
+    }
+
+    let work = header_work_from_header(header)?;
+    let equivalence_checksum = verify_header_hash_window(header, &work, nonce_count)?;
+
+    let mut candidate = header.to_vec();
+    let full_header_start = Instant::now();
+    let mut full_header_checksum = 0_u64;
+    for nonce in 0..nonce_count {
+        candidate[76..80].copy_from_slice(&nonce.to_le_bytes());
+        full_header_checksum =
+            mix_hash_checksum(full_header_checksum, nonce, &double_sha256(&candidate));
+    }
+    let full_header_elapsed = full_header_start.elapsed();
+
+    let mut midstate_hasher = crate::gpu_miner::ReusableMidstateHasher::new(&work.tail);
+    let midstate_start = Instant::now();
+    let mut midstate_checksum = 0_u64;
+    for nonce in 0..nonce_count {
+        let hash_words = midstate_hasher.double_sha256_words(&work.midstate, nonce);
+        let hash = crate::gpu_miner::hash_words_to_bytes(&hash_words);
+        midstate_checksum = mix_hash_checksum(midstate_checksum, nonce, &hash);
+    }
+    let midstate_elapsed = midstate_start.elapsed();
+
+    if full_header_checksum != equivalence_checksum || midstate_checksum != equivalence_checksum {
+        return Err("header hash benchmark checksums diverged".into());
+    }
+
+    let full_header_hashrate = benchmark_hashrate(nonce_count, full_header_elapsed);
+    let midstate_hashrate = benchmark_hashrate(nonce_count, midstate_elapsed);
+    let speedup_ratio = if full_header_hashrate > 0.0 {
+        midstate_hashrate / full_header_hashrate
+    } else {
+        0.0
+    };
+
+    Ok(HeaderHashBenchmark {
+        nonce_count: nonce_count as u64,
+        full_header_duration_micros: full_header_elapsed.as_micros(),
+        midstate_duration_micros: midstate_elapsed.as_micros(),
+        full_header_hashrate,
+        midstate_hashrate,
+        speedup_ratio,
+        checksum: equivalence_checksum,
+    })
+}
+fn verify_header_hash_window(
+    header: &[u8],
+    work: &HeaderWork,
+    nonce_count: u32,
+) -> Result<u64, String> {
+    let mut candidate = header.to_vec();
+    let mut midstate_hasher = crate::gpu_miner::ReusableMidstateHasher::new(&work.tail);
+    let mut checksum = 0_u64;
+
+    for nonce in 0..nonce_count {
+        candidate[76..80].copy_from_slice(&nonce.to_le_bytes());
+        let full_hash = double_sha256(&candidate);
+        let midstate_hash = crate::gpu_miner::hash_words_to_bytes(
+            &midstate_hasher.double_sha256_words(&work.midstate, nonce),
+        );
+
+        if full_hash != midstate_hash {
+            return Err(format!("midstate hash mismatch at nonce {nonce}"));
+        }
+
+        checksum = mix_hash_checksum(checksum, nonce, &midstate_hash);
+    }
+
+    Ok(checksum)
+}
+fn mix_hash_checksum(current: u64, nonce: u32, hash: &[u8; 32]) -> u64 {
+    let mut mixed = current.rotate_left(7) ^ nonce as u64;
+    for chunk in hash.chunks_exact(8) {
+        mixed ^= u64::from_be_bytes(chunk.try_into().unwrap());
+        mixed = mixed.rotate_left(11).wrapping_mul(0x9E37_79B1_85EB_CA87);
+    }
+    mixed
+}
+fn benchmark_hashrate(nonce_count: u32, elapsed: Duration) -> f64 {
+    let seconds = elapsed.as_secs_f64();
+    if seconds > 0.0 {
+        nonce_count as f64 / seconds
+    } else {
+        0.0
+    }
 }
 
 fn decode_hex(value: &str) -> Result<Vec<u8>, String> {
@@ -1689,11 +2170,11 @@ pub(crate) fn record_block_candidate(app: &AppHandle, event: &FoundBlockEvent) {
     match serde_json::to_vec_pretty(event) {
         Ok(payload) => {
             if let Err(error) = std::fs::write(&path, payload) {
-                log_message(app, &format!("Failed to save found_block.json: {error}"));
+                log_message(app, &format!("Failed to save found block file: {error}"));
             }
         }
         Err(error) => {
-            log_message(app, &format!("Failed to encode found_block.json: {error}"));
+            log_message(app, &format!("Failed to encode found block file: {error}"));
         }
     }
 }
@@ -1729,15 +2210,16 @@ mod tests {
             Arc,
         },
         thread,
-        time::Duration,
+        time::{Duration, Instant},
     };
 
     use super::{
         difficulty_from_hash, extranonce2_hex, found_block_event,
         handle_server_message_with_logger, hash_meets_network_target, read_stratum_line,
         target_from_nbits, validate_mainnet_address, validate_share_difficulty, word_swapped_hex,
-        JobTemplate, PoolDiagnosticSettings, ProtocolState, RealMiningSettings, SharedMiningState,
-        MAX_PENDING_SUBMISSIONS, MAX_SHARE_SUBMISSIONS_PER_TICK, MAX_STRATUM_LINE_BYTES,
+        BestDifficultyTracker, CpuKernelMode, JobTemplate, PoolDiagnosticSettings, ProtocolState,
+        RealMiningSettings, SharedMiningState, DIFF_ONE_TARGET, MAX_PENDING_SUBMISSIONS,
+        MAX_SHARE_SUBMISSIONS_PER_TICK, MAX_STRATUM_LINE_BYTES,
     };
 
     fn read_mock_line(reader: &mut BufReader<TcpStream>) -> String {
@@ -1799,9 +2281,379 @@ mod tests {
     }
 
     #[test]
+    fn header_work_midstate_matches_full_header_hashing() {
+        let job = JobTemplate {
+            generation: 1,
+            clean_jobs: true,
+            job_id: "job-midstate".into(),
+            prev_hash: "00".repeat(32),
+            coinbase1: "01000000".into(),
+            coinbase2: "ffffffff".into(),
+            merkle_branches: vec!["11".repeat(32), "22".repeat(32)],
+            version: "20000000".into(),
+            nbits: "1d00ffff".into(),
+            network_target: target_from_nbits("1d00ffff").unwrap(),
+            ntime: "5f5e1000".into(),
+            extranonce1: "abcd".into(),
+            extranonce2_size: 4,
+            share_difficulty: 1.0,
+        };
+        let extranonce2 = extranonce2_hex(1, job.extranonce2_size);
+        let header = super::build_header(&job, &extranonce2).unwrap();
+        let work = super::build_header_work(&job, &extranonce2).unwrap();
+
+        assert_eq!(header.len(), 80);
+        assert_eq!(
+            work.tail[0],
+            u32::from_le_bytes(header[64..68].try_into().unwrap())
+        );
+        assert_eq!(
+            work.tail[1],
+            u32::from_le_bytes(header[68..72].try_into().unwrap())
+        );
+        assert_eq!(
+            work.tail[2],
+            u32::from_le_bytes(header[72..76].try_into().unwrap())
+        );
+
+        for nonce in [0, 1, 0x1234abcd, u32::MAX] {
+            let mut candidate = header.clone();
+            candidate[76..80].copy_from_slice(&nonce.to_le_bytes());
+            assert_eq!(
+                crate::gpu_miner::double_sha256_from_midstate(&work.midstate, &work.tail, nonce),
+                super::double_sha256(&candidate),
+            );
+        }
+    }
+
+    #[test]
+    fn header_work_template_reuses_midstate_when_only_ntime_changes() {
+        let job = JobTemplate {
+            generation: 1,
+            clean_jobs: true,
+            job_id: "job-midstate-template".into(),
+            prev_hash: "00".repeat(32),
+            coinbase1: "01000000".into(),
+            coinbase2: "ffffffff".into(),
+            merkle_branches: vec!["11".repeat(32), "22".repeat(32)],
+            version: "20000000".into(),
+            nbits: "1d00ffff".into(),
+            network_target: target_from_nbits("1d00ffff").unwrap(),
+            ntime: "5f5e1000".into(),
+            extranonce1: "abcd".into(),
+            extranonce2_size: 4,
+            share_difficulty: 1.0,
+        };
+        let extranonce2 = extranonce2_hex(1, job.extranonce2_size);
+        let template = super::build_header_work_template(&job, &extranonce2).unwrap();
+        let first_work = template.work_for_ntime(&job.ntime).unwrap();
+
+        let mut next_job = job.clone();
+        next_job.ntime = "5f5e1010".into();
+        let next_work = template.work_for_ntime(&next_job.ntime).unwrap();
+        let rebuilt_next_work = super::build_header_work(&next_job, &extranonce2).unwrap();
+
+        assert_eq!(first_work.midstate, next_work.midstate);
+        assert_ne!(first_work.tail[1], next_work.tail[1]);
+        assert_eq!(next_work, rebuilt_next_work);
+
+        let next_header = super::build_header(&next_job, &extranonce2).unwrap();
+        for nonce in [0, 1, 0x1234abcd, u32::MAX] {
+            let mut candidate = next_header.clone();
+            candidate[76..80].copy_from_slice(&nonce.to_le_bytes());
+            assert_eq!(
+                crate::gpu_miner::double_sha256_from_midstate(
+                    &next_work.midstate,
+                    &next_work.tail,
+                    nonce,
+                ),
+                super::double_sha256(&candidate),
+            );
+        }
+    }
+    #[test]
+    fn cpu_kernel_modes_match_across_nonce_window() {
+        let job = JobTemplate {
+            generation: 1,
+            clean_jobs: true,
+            job_id: "job-cpu-kernel-mode".into(),
+            prev_hash: "00".repeat(32),
+            coinbase1: "01000000".into(),
+            coinbase2: "ffffffff".into(),
+            merkle_branches: vec!["11".repeat(32), "22".repeat(32)],
+            version: "20000000".into(),
+            nbits: "1d00ffff".into(),
+            network_target: target_from_nbits("1d00ffff").unwrap(),
+            ntime: "5f5e1000".into(),
+            extranonce1: "abcd".into(),
+            extranonce2_size: 4,
+            share_difficulty: 1.0,
+        };
+        let extranonce2 = extranonce2_hex(1, job.extranonce2_size);
+        let mut header = super::build_header(&job, &extranonce2).unwrap();
+        let work = super::header_work_from_header(&header).unwrap();
+        let mut midstate_hasher = crate::gpu_miner::ReusableMidstateHasher::new(&work.tail);
+
+        for nonce in [0, 1, 1024, 0x1234abcd, u32::MAX] {
+            let mut midstate_header = header.clone();
+            let midstate_words = super::cpu_kernel_hash_words(
+                CpuKernelMode::Midstate,
+                &mut midstate_header,
+                &work,
+                &mut midstate_hasher,
+                nonce,
+            );
+            let full_header_words = super::cpu_kernel_hash_words(
+                CpuKernelMode::FullHeader,
+                &mut header,
+                &work,
+                &mut midstate_hasher,
+                nonce,
+            );
+
+            assert_eq!(midstate_words, full_header_words);
+        }
+    }
+    #[test]
+    fn header_hash_benchmark_compares_full_and_midstate_windows() {
+        let job = JobTemplate {
+            generation: 1,
+            clean_jobs: true,
+            job_id: "job-midstate-bench".into(),
+            prev_hash: "00".repeat(32),
+            coinbase1: "01000000".into(),
+            coinbase2: "ffffffff".into(),
+            merkle_branches: vec!["11".repeat(32), "22".repeat(32)],
+            version: "20000000".into(),
+            nbits: "1d00ffff".into(),
+            network_target: target_from_nbits("1d00ffff").unwrap(),
+            ntime: "5f5e1000".into(),
+            extranonce1: "abcd".into(),
+            extranonce2_size: 4,
+            share_difficulty: 1.0,
+        };
+        let extranonce2 = extranonce2_hex(1, job.extranonce2_size);
+        let header = super::build_header(&job, &extranonce2).unwrap();
+        let benchmark = super::benchmark_header_hash_paths(&header, 2048).unwrap();
+
+        eprintln!(
+            "midstate benchmark: full={:.0} H/s, midstate={:.0} H/s, ratio={:.2}x, nonces={}",
+            benchmark.full_header_hashrate,
+            benchmark.midstate_hashrate,
+            benchmark.speedup_ratio,
+            benchmark.nonce_count,
+        );
+
+        assert_eq!(benchmark.nonce_count, 2048);
+        assert!(benchmark.full_header_duration_micros > 0);
+        assert!(benchmark.midstate_duration_micros > 0);
+        assert!(benchmark.full_header_hashrate.is_finite());
+        assert!(benchmark.full_header_hashrate > 0.0);
+        assert!(benchmark.midstate_hashrate.is_finite());
+        assert!(benchmark.midstate_hashrate > 0.0);
+        assert!(benchmark.speedup_ratio.is_finite());
+        assert!(benchmark.speedup_ratio > 0.0);
+    }
+
+    #[test]
+    fn header_work_rejects_invalid_header_width() {
+        let error = super::header_work_from_header(&[0; 79]).unwrap_err();
+        assert!(error.contains("80-byte block header"));
+    }
+
+    fn validity_test_job(job_id: &str, prev_hash: &str, clean_jobs: bool) -> JobTemplate {
+        JobTemplate {
+            generation: 0,
+            clean_jobs,
+            job_id: job_id.to_owned(),
+            prev_hash: prev_hash.to_owned(),
+            coinbase1: String::new(),
+            coinbase2: String::new(),
+            merkle_branches: Vec::new(),
+            version: "20000000".into(),
+            nbits: "1d00ffff".into(),
+            network_target: target_from_nbits("1d00ffff").unwrap(),
+            ntime: "5f5e1000".into(),
+            extranonce1: "abcd".into(),
+            extranonce2_size: 4,
+            share_difficulty: 1.0,
+        }
+    }
+
+    fn share_for_job(job: &JobTemplate) -> super::ShareSubmission {
+        super::ShareSubmission {
+            generation: job.generation,
+            job_id: job.job_id.clone(),
+            extranonce2: "00000001".into(),
+            ntime: job.ntime.clone(),
+            nonce: 0,
+        }
+    }
+
+    #[test]
+    fn stale_share_submissions_do_not_match_current_job() {
+        let shared = SharedMiningState::new(Arc::new(AtomicBool::new(false)));
+        let base_job = JobTemplate {
+            generation: 0,
+            clean_jobs: true,
+            job_id: "job-1".into(),
+            prev_hash: String::new(),
+            coinbase1: String::new(),
+            coinbase2: String::new(),
+            merkle_branches: Vec::new(),
+            version: "20000000".into(),
+            nbits: "1d00ffff".into(),
+            network_target: target_from_nbits("1d00ffff").unwrap(),
+            ntime: "5f5e1000".into(),
+            extranonce1: "abcd".into(),
+            extranonce2_size: 4,
+            share_difficulty: 1.0,
+        };
+
+        shared.set_job(base_job.clone());
+        let active_job = shared.job.read().unwrap().as_ref().unwrap().clone();
+        let active_share = super::ShareSubmission {
+            generation: active_job.generation,
+            job_id: active_job.job_id.clone(),
+            extranonce2: "00000001".into(),
+            ntime: active_job.ntime.clone(),
+            nonce: 0,
+        };
+
+        assert!(super::share_matches_current_job(&shared, &active_share));
+        assert!(super::should_submit_share(&shared, &active_share));
+        assert_eq!(shared.stale_shares_dropped.load(Ordering::Relaxed), 0);
+
+        let stale_generation = super::ShareSubmission {
+            generation: active_job.generation.saturating_sub(1),
+            ..active_share.clone()
+        };
+
+        assert!(!super::share_matches_current_job(
+            &shared,
+            &stale_generation
+        ));
+        assert!(!super::should_submit_share(&shared, &stale_generation));
+        assert_eq!(shared.stale_shares_dropped.load(Ordering::Relaxed), 1);
+
+        let mut next_job = base_job;
+        next_job.job_id = "job-2".into();
+        shared.set_job(next_job);
+
+        assert!(!super::share_matches_current_job(&shared, &active_share));
+        assert!(!super::should_submit_share(&shared, &active_share));
+        assert_eq!(shared.stale_shares_dropped.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn previous_job_share_remains_valid_when_clean_jobs_is_false() {
+        let shared = SharedMiningState::new(Arc::new(AtomicBool::new(false)));
+        let prev_hash = "00".repeat(32);
+        shared.set_job(validity_test_job("job-1", &prev_hash, true));
+        let active_job = shared.job.read().unwrap().as_ref().unwrap().clone();
+        let active_share = share_for_job(&active_job);
+
+        shared.set_job(validity_test_job("job-2", &prev_hash, false));
+
+        assert!(!super::share_matches_current_job(&shared, &active_share));
+        assert!(super::share_matches_valid_previous_job(
+            &shared,
+            &active_share
+        ));
+        assert!(super::should_submit_share(&shared, &active_share));
+        assert_eq!(shared.stale_shares_dropped.load(Ordering::Relaxed), 0);
+        assert_eq!(shared.valid_previous_jobs.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn previous_job_share_is_stale_when_prev_hash_changes() {
+        let shared = SharedMiningState::new(Arc::new(AtomicBool::new(false)));
+        shared.set_job(validity_test_job("job-1", &"00".repeat(32), true));
+        let active_job = shared.job.read().unwrap().as_ref().unwrap().clone();
+        let active_share = share_for_job(&active_job);
+
+        shared.set_job(validity_test_job("job-2", &"11".repeat(32), false));
+
+        assert!(!super::share_matches_valid_previous_job(
+            &shared,
+            &active_share
+        ));
+        assert!(!super::should_submit_share(&shared, &active_share));
+        assert_eq!(shared.stale_shares_dropped.load(Ordering::Relaxed), 1);
+        assert!(shared.valid_previous_jobs.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn previous_job_share_expires_after_grace_window() {
+        let shared = SharedMiningState::new(Arc::new(AtomicBool::new(false)));
+        let prev_hash = "00".repeat(32);
+        shared.set_job(validity_test_job("job-1", &prev_hash, true));
+        let active_job = shared.job.read().unwrap().as_ref().unwrap().clone();
+        let active_share = share_for_job(&active_job);
+        shared.set_job(validity_test_job("job-2", &prev_hash, false));
+
+        {
+            let mut valid_previous_jobs = shared.valid_previous_jobs.lock().unwrap();
+            assert_eq!(valid_previous_jobs.len(), 1);
+            valid_previous_jobs[0].expires_at = Instant::now()
+                .checked_sub(Duration::from_secs(1))
+                .unwrap_or_else(Instant::now);
+        }
+
+        assert!(!super::share_matches_valid_previous_job(
+            &shared,
+            &active_share
+        ));
+        assert!(shared.valid_previous_jobs.lock().unwrap().is_empty());
+        assert!(!super::should_submit_share(&shared, &active_share));
+        assert_eq!(shared.stale_shares_dropped.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn best_difficulty_tracker_skips_hashes_below_current_best() {
+        let shared = SharedMiningState::new(Arc::new(AtomicBool::new(false)));
+        shared.update_best_difficulty(1.0);
+        let mut tracker = BestDifficultyTracker::new(&shared);
+        let weak_hash_words = [0xffff_ffff; 8];
+
+        assert!(!crate::gpu_miner::hash_words_meet_target_words(
+            &weak_hash_words,
+            tracker.target_words(),
+        ));
+        assert_eq!(
+            f64::from_bits(shared.best_difficulty_bits.load(Ordering::Relaxed)),
+            1.0
+        );
+
+        let perfect_hash_words = [0_u32; 8];
+        assert!(crate::gpu_miner::hash_words_meet_target_words(
+            &perfect_hash_words,
+            tracker.target_words(),
+        ));
+        let improved = tracker.record_words_improvement(&shared, &perfect_hash_words);
+        assert_eq!(improved, DIFF_ONE_TARGET);
+        assert_eq!(
+            f64::from_bits(shared.best_difficulty_bits.load(Ordering::Relaxed)),
+            DIFF_ONE_TARGET
+        );
+    }
+    #[test]
+    fn queued_share_drops_are_counted_in_stats_snapshot() {
+        let shared = SharedMiningState::new(Arc::new(AtomicBool::new(false)));
+        assert_eq!(shared.snapshot(0.0).queued_shares_dropped, 0);
+
+        shared.record_queued_share_drop();
+        shared.record_queued_share_drop();
+
+        assert_eq!(shared.queued_shares_dropped.load(Ordering::Relaxed), 2);
+        assert_eq!(shared.snapshot(123.0).queued_shares_dropped, 2);
+    }
+
+    #[test]
     fn found_block_event_uses_pool_metadata_without_address() {
         let job = JobTemplate {
             generation: 1,
+            clean_jobs: true,
             job_id: "job-7".into(),
             prev_hash: String::new(),
             coinbase1: String::new(),
@@ -2334,6 +3186,7 @@ mod tests {
             gpu_enabled: false,
             gpu_device_id: None,
             gpu_intensity_percent: 10,
+            cpu_kernel_mode: CpuKernelMode::Midstate,
         };
 
         assert!(settings.validate().is_err());

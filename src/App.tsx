@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import Header from "./components/Header";
 import PetDisplay from "./components/PetDisplay";
 import MetricsGrid from "./components/MetricsGrid";
@@ -23,7 +23,7 @@ import {
   petLogMessageFromRawLog,
 } from "./domain/miningLogs";
 import type { DevLogEntry, PetLogEntry } from "./domain/miningLogs";
-import { miningModeLabel, miningModeOption, miningModeOptions } from "./domain/miningMode";
+import { miningModeForRuntime, miningModeLabel, miningModeOption, miningModeOptions } from "./domain/miningMode";
 import type { MiningMode } from "./domain/miningMode";
 import {
   createBlockCandidateEvent,
@@ -38,27 +38,46 @@ import {
   petStateLabel,
   petStatusFromState,
 } from "./domain/petState";
-import {
-  createCpuMiningEngine as createCpuEngine,
-  createGpuMiningEngine as createGpuEngine,
-  createSimulationEngine as createSimulationEngineAdapter,
-  createStratumMiningEngine as createStratumEngine,
-} from "./engines/miningEngine";
-import type { MiningEngine, MiningEngineKind, MiningEngineLifecycle } from "./engines/miningEngine";
+import type { MiningEngineKind, MiningEngineLifecycle } from "./engines/miningEngine";
 import {
   calculateProbabilitySnapshot,
   formatProbabilityTime,
 } from "./domain/probabilityEngine";
 import type { ProbabilitySnapshot } from "./domain/probabilityEngine";
+import {
+  TUNING_REPLICATION_HISTORY_STORAGE_KEY,
+  TUNING_EVIDENCE_STORAGE_KEY,
+  appendTuningObservationHistory,
+  parseTuningReplicationHistoryStorageJson,
+  parseTuningObservationsStorageJson,
+  serializeTuningReplicationHistoryForStorage,
+  serializeTuningObservationsForStorage,
+} from "./domain/evidencePersistence";
+import { createTuningSweepPlan, diffTuningShareCounters, findTuningSweepStepForRuntime, upsertTuningObservation } from "./domain/efficiencyTuning";
+import type { TuningObservation, TuningShareCounters } from "./domain/efficiencyTuning";
+import { calculateTuningWindowElapsedSeconds, createTuningAutoSampleCapture, evaluateTuningAutoSampleGate, hasTuningWindowCounterReset } from "./domain/tuningAutoSampler";
+import {
+  createOptimizationEvidenceSnapshot,
+  formatOptimizationEvidenceSnapshot,
+} from "./domain/optimizationEvidence";
+import type { OptimizationOperatingGoal } from "./domain/optimizationEvidence";
+import {
+  createMiningAlgorithmDiagnosticSnapshot,
+  createMiningAlgorithmRuntimeSnapshot,
+  formatMiningAlgorithmDiagnosticSnapshot,
+} from "./domain/algorithmDiagnostics";
 import { formatError, formatUptime } from "./formatting";
 import { useBlockHeight } from "./hooks/useBlockHeight";
 import { useDiagnosticsActions } from "./hooks/useDiagnosticsActions";
+import { useMiningEngineController } from "./hooks/useMiningEngineController";
 import { useHeartbeatNotifications } from "./hooks/useHeartbeatNotifications";
 import { useSimulationMiningSession } from "./hooks/useSimulationMiningSession";
 import { notificationSettingsFromConfig } from "./notificationSettings";
 import { derivePetCompanionSnapshot } from "./pets/companion";
 import { getPetProfile } from "./pets/profiles";
 import {
+  adaptConfigForHardware,
+  cpuKernelModeForRouteAlgorithm,
   expectedSharesPerHour,
   formatDifficulty,
   formatHashrate,
@@ -69,6 +88,7 @@ import {
   normalizeAppConfig,
   presetPort,
   realMiningStartError,
+  resolveRuntimeMiningProfile,
   sanitizeGpuDeviceId,
   threadsForPreset,
 } from "./miningLogic";
@@ -81,6 +101,7 @@ import type {
   PerformancePreset,
   PoolDiagnosticReport,
   RealMiningStats,
+  RuntimeMiningProfile,
   SimulationStats,
   SystemInfo,
 } from "./miningLogic";
@@ -101,6 +122,12 @@ const fallbackConfig: AppConfig = {
   heartbeat_interval: "off",
   notification_channel: "local_windows_toast",
   webhook_url: "",
+  external_hash_interface: "none",
+  external_hash_network_host: "",
+  external_hash_direct_port: "",
+  external_hash_direct_endpoint: "",
+  external_hash_polling_enabled: false,
+  external_hash_poll_interval_seconds: 60,
   compute_mode: "cpu",
   gpu_enabled: false,
   gpu_device_id: null,
@@ -123,6 +150,8 @@ const idleRealStats: RealMiningStats = {
   hashrate: 0,
   accepted_shares: 0,
   rejected_shares: 0,
+  stale_shares_dropped: 0,
+  queued_shares_dropped: 0,
   best_difficulty: 0,
   share_difficulty: 0,
   current_job_id: "",
@@ -135,6 +164,91 @@ const idleRealStats: RealMiningStats = {
 };
 
 const runningInTauri = isTauri();
+const MIN_EFFICIENCY_OBSERVATION_SECONDS = 20;
+const AUTO_TUNING_SAMPLE_WINDOW_SECONDS = 60;
+
+function readTuningEvidenceFromStorage() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    return parseTuningObservationsStorageJson(
+      window.localStorage.getItem(TUNING_EVIDENCE_STORAGE_KEY),
+    );
+  } catch {
+    return [];
+  }
+}
+
+function persistTuningEvidenceToStorage(observations: TuningObservation[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    const payload = serializeTuningObservationsForStorage(observations);
+    const storedObservations = parseTuningObservationsStorageJson(payload);
+    if (storedObservations.length === 0) {
+      window.localStorage.removeItem(TUNING_EVIDENCE_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(TUNING_EVIDENCE_STORAGE_KEY, payload);
+  } catch {
+    // Local evidence is useful but must never block mining or diagnostics.
+  }
+}
+
+function clearTuningEvidenceStorage() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(TUNING_EVIDENCE_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures; runtime state is still cleared by React.
+  }
+}
+
+function readTuningReplicationHistoryFromStorage(): TuningObservation[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    return parseTuningReplicationHistoryStorageJson(
+      window.localStorage.getItem(TUNING_REPLICATION_HISTORY_STORAGE_KEY),
+    );
+  } catch {
+    return [];
+  }
+}
+
+function persistTuningReplicationHistoryToStorage(history: TuningObservation[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    const payload = serializeTuningReplicationHistoryForStorage(history);
+    const storedHistory = parseTuningReplicationHistoryStorageJson(payload);
+    if (storedHistory.length === 0) {
+      window.localStorage.removeItem(TUNING_REPLICATION_HISTORY_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(TUNING_REPLICATION_HISTORY_STORAGE_KEY, payload);
+  } catch {
+    // Replication history is advisory and must not block mining.
+  }
+}
+
+function clearTuningReplicationHistoryStorage() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(TUNING_REPLICATION_HISTORY_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures; runtime state is still cleared by React.
+  }
+}
+
 
 function formatDispatchSize(dispatchSize: number) {
   if (!dispatchSize) {
@@ -160,6 +274,216 @@ function performancePresetLabel(preset: PerformancePreset) {
   }
 }
 
+function optimizationGoalForPreset(preset: PerformancePreset): OptimizationOperatingGoal {
+  switch (preset) {
+    case "eco":
+      return "lowest_power";
+    case "turbo":
+      return "max_hashrate";
+    case "custom":
+      return "max_efficiency";
+    case "normal":
+    default:
+      return "balanced";
+  }
+}
+
+function compactClaimStatus(claim: { status: string; scope: string; claimAllowed: boolean }) {
+  if (claim.claimAllowed) {
+    return `PROVEN ${claim.scope === "local" ? "LOCAL" : "EXT"}`;
+  }
+  const scope = claim.scope === "external_reference" ? "EXT" : claim.scope === "local" ? "LOCAL" : "WAIT";
+  return `${claim.status.replace(/_/g, " ").toUpperCase()} ${scope}`;
+}
+
+function compactClaimNextAction(action: string) {
+  switch (action) {
+    case "measure_power":
+      return "MEASURE POWER";
+    case "collect_shares":
+      return "COLLECT SHARES";
+    case "run_stability_window":
+      return "RUN 15M";
+    case "cooling":
+      return "COOLING";
+    case "prove_external_work":
+      return "PROVE WORK";
+    case "collect_telemetry":
+      return "TELEMETRY";
+    case "release_gate":
+      return "RELEASE GATE";
+    case "monitor":
+      return "MONITOR";
+    default:
+      return "OPEN SETTINGS";
+  }
+}
+function compactObjectiveStatus(certificate: { status: string; lowPowerReady: boolean; highHashReady: boolean }) {
+  if (certificate.status === "ready") {
+    return "READY DENSITY+BURST";
+  }
+  if (certificate.status === "partial" && certificate.lowPowerReady) {
+    return certificate.highHashReady ? "PARTIAL BURST" : "LOW READY";
+  }
+  if (certificate.status === "dry_run") {
+    return "EXT DRY RUN";
+  }
+  if (certificate.status === "blocked") {
+    return "BLOCKED";
+  }
+  return "COLLECTING";
+}
+
+function compactObjectiveScore(certificate: {
+  objectiveProgressScore: number;
+  lowPowerProgressScore: number;
+  highHashProgressScore: number;
+}) {
+  return `${certificate.objectiveProgressScore}% / L${certificate.lowPowerProgressScore}% / H${certificate.highHashProgressScore}%`;
+}
+
+function compactObjectiveGap(gap: string) {
+  switch (gap) {
+    case "none":
+      return "CLEAR";
+    case "low_power_evidence":
+      return "LOW EVIDENCE";
+    case "high_hash_measurement":
+      return "HASH MEASURE";
+    case "max_hash_marginal_hold":
+      return "MARGINAL HOLD";
+    case "kernel_regression":
+      return "KERNEL REGRESS";
+    case "high_hash_cooldown":
+      return "HASH COOLDOWN";
+    case "runtime_guard":
+      return "RUNTIME GUARD";
+    case "external_dry_run":
+      return "EXT DRY RUN";
+    default:
+      return gap.replace(/_/g, " ").toUpperCase();
+  }
+}
+function compactHighHashPath(path: string) {
+  switch (path) {
+    case "manual_burst":
+      return "MANUAL BURST";
+    case "marginal_hold":
+      return "HOLD WATTS";
+    case "needs_measurement":
+      return "MEASURE";
+    case "cooldown":
+      return "COOLDOWN";
+    case "external_dry_run":
+      return "EXT DRY RUN";
+    case "none":
+      return "NONE";
+    default:
+      return path.replace(/_/g, " ").toUpperCase();
+  }
+}
+
+function compactObjectiveAction(action: string) {
+  switch (action) {
+    case "run_density_lane":
+      return "RUN DENSITY";
+    case "keep_manual_burst_available":
+      return "BURST READY";
+    case "capture_local_evidence":
+      return "CAPTURE";
+    case "measure_burst_headroom":
+      return "MEASURE BURST";
+    case "hold_max_hash":
+      return "HOLD MAX";
+    case "recover_runtime_guard":
+      return "RECOVER";
+    case "validate_external_dry_run":
+      return "EXT DRY RUN";
+    case "monitor":
+      return "MONITOR";
+    default:
+      return action.replace(/_/g, " ").toUpperCase();
+  }
+}
+
+function compactRouteAlgorithm(algorithm: string) {
+  switch (algorithm) {
+    case "double_sha256_midstate":
+      return "MIDSTATE";
+    case "double_sha256_full_header":
+      return "FULL HEADER";
+    case "double_sha256_pending_midstate":
+      return "MIDSTATE PENDING";
+    default:
+      return algorithm.replace(/_/g, " ").toUpperCase();
+  }
+}
+
+function compactObjectiveAuditStage(stage: string) {
+  switch (stage) {
+    case "local_density_manual_burst":
+      return "DENSITY+BURST";
+    case "local_density_default":
+      return "DENSITY";
+    case "external_dry_run_only":
+      return "EXT DRY RUN";
+    case "runtime_recovery":
+      return "RECOVERY";
+    case "evidence_wait":
+      return "EVIDENCE WAIT";
+    default:
+      return stage.replace(/_/g, " ").toUpperCase();
+  }
+}
+
+function compactObjectiveAuditClaims(audit: {
+  lowPowerClaimAllowed: boolean;
+  highHashClaimAllowed: boolean;
+  fullObjectiveClaimAllowed: boolean;
+  latestResearchClaimAllowed: boolean;
+}) {
+  const runtimeClaim = audit.fullObjectiveClaimAllowed
+    ? "FULL"
+    : [audit.lowPowerClaimAllowed ? "LOW" : "LOW WAIT", audit.highHashClaimAllowed ? "HASH" : "HASH WAIT"].join("+");
+  return `${runtimeClaim} / ${audit.latestResearchClaimAllowed ? "FRESH" : "REVIEW"}`;
+}
+
+function compactObjectiveAuditEvidence(ids: string[]) {
+  if (ids.length === 0) {
+    return "CLEAR";
+  }
+  const labels = ids.slice(0, 2).map((id) => {
+    switch (id) {
+      case "frontier_research_refresh":
+      case "refresh_frontier_sources":
+        return "RESEARCH";
+      case "research_frontier_filter":
+        return "FRONTIER";
+      case "low_power_evidence":
+        return "LOW POWER";
+      case "high_hash_measurement":
+        return "HASH MEASURE";
+      case "consensus_midstate":
+      case "midstate_benchmark_evidence":
+        return "MIDSTATE";
+      case "runtime_power_hash_recovery":
+      case "runtime_guard":
+        return "RUNTIME";
+      case "external_work_validation":
+        return "EXT WORK";
+      default:
+        return id.replace(/_/g, " ").toUpperCase();
+    }
+  });
+  return ids.length > labels.length ? `${labels.join("+")} +${ids.length - labels.length}` : labels.join("+");
+}
+function compactPowerLane(certificate: { sustainableWatts: number | null; sustainableHashrate: number | null; selectedLaneStatus: string }) {
+  if (certificate.sustainableWatts && certificate.sustainableHashrate) {
+    const watts = certificate.sustainableWatts.toFixed(certificate.sustainableWatts < 100 ? 1 : 0);
+    return `${watts}W / ${formatHashrate(certificate.sustainableHashrate)}`;
+  }
+  return certificate.selectedLaneStatus.replace(/_/g, " ").toUpperCase();
+}
 function useLatestRef<T>(val: T) {
   const ref = useRef(val);
   ref.current = val;
@@ -180,6 +504,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [realStats, setRealStats] = useState<RealMiningStats>(idleRealStats);
+  const [activeRuntimeProfile, setActiveRuntimeProfile] = useState<RuntimeMiningProfile | null>(null);
   const [simulationStats, setSimulationStats] = useState<SimulationStats>({
     status: "Sleeping",
     hashrate: 0,
@@ -202,12 +527,24 @@ function App() {
   const [displayMode, setDisplayMode] = useState<"compact" | "detail">("compact");
   const [systemInfo, setSystemInfo] = useState<SystemInfo>(fallbackSystemInfo);
   const [gpuDevices, setGpuDevices] = useState<GpuDevice[]>(fallbackGpuDevices);
+  const [hardwareReady, setHardwareReady] = useState(false);
   const [benchmarkResult, setBenchmarkResult] = useState<GpuBenchmarkResult | null>(null);
   const [poolDiagnosticResult, setPoolDiagnosticResult] =
     useState<PoolDiagnosticReport | null>(null);
+  const [tuningEvidence, setTuningEvidence] = useState<TuningObservation[]>(() => readTuningEvidenceFromStorage());
+  const [tuningReplicationHistory, setTuningReplicationHistory] = useState<TuningObservation[]>(() => readTuningReplicationHistoryFromStorage());
 
   const coolingDownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const simShareTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tuningAutoShareBaselineRef = useRef<TuningShareCounters | null>(null);
+  const tuningAutoSampleBaselineSecondsRef = useRef(0);
+  const tuningAutoLastCaptureKeyRef = useRef<string | null>(null);
+  const [tuningAutoSampleBaselineSeconds, setTuningAutoSampleBaselineSeconds] = useState(0);
+  const [runtimeProfileWindowBaseline, setRuntimeProfileWindowBaseline] = useState<{
+    key: string;
+    shareCounters: TuningShareCounters | null;
+    sampleSeconds: number;
+  }>({ key: "", shareCounters: null, sampleSeconds: 0 });
   const configRef = useLatestRef(config);
   const realStatsRef = useLatestRef(realStats);
   const simulationStatsRef = useLatestRef(simulationStats);
@@ -219,6 +556,15 @@ function App() {
   const isMiningRef = useLatestRef(isMining);
   const selectedMiningModeRef = useLatestRef(selectedMiningMode);
   const lastConnectionNotificationRef = useRef(0);
+
+  useEffect(() => {
+    persistTuningEvidenceToStorage(tuningEvidence);
+  }, [tuningEvidence]);
+
+  useEffect(() => {
+    persistTuningReplicationHistoryToStorage(tuningReplicationHistory);
+  }, [tuningReplicationHistory]);
+
   const appendPetLog = useCallback((message: string) => {
     const entry = createPetLogEntry(message);
     setPetLogs((current) => [entry, ...current].slice(0, 20));
@@ -228,6 +574,25 @@ function App() {
     const entry = createDevLogEntry(source, message);
     setDevLogs((current) => [entry, ...current].slice(0, 80));
   }, []);
+  const captureTuningObservation = useCallback((observation: TuningObservation) => {
+    const capturedAt = new Date().toISOString();
+    const capturedObservation: TuningObservation = {
+      ...observation,
+      capturedAt,
+    };
+    setTuningEvidence((current) => upsertTuningObservation(current, capturedObservation));
+    setTuningReplicationHistory((current) => appendTuningObservationHistory(current, capturedObservation, capturedAt));
+    appendDevLog("diagnostic", "Local tuning evidence sample captured.");
+    appendPetLog("Local tuning sample captured.");
+  }, [appendDevLog, appendPetLog]);
+  const clearTuningEvidence = useCallback(() => {
+    clearTuningEvidenceStorage();
+    clearTuningReplicationHistoryStorage();
+    setTuningEvidence([]);
+    setTuningReplicationHistory([]);
+    appendDevLog("diagnostic", "Local tuning evidence cleared.");
+    appendPetLog("Local tuning memory cleared.");
+  }, [appendDevLog, appendPetLog]);
   const emitMiningEvent = useCallback((event: MiningEvent) => {
     if (event.level !== "LOW_LEVEL") {
       setLastMiningEvent(event);
@@ -267,33 +632,85 @@ function App() {
     return () => window.clearInterval(timer);
   }, [isMining]);
 
-  // Load Config
-  useEffect(() => {
-    invoke<AppConfig>("get_config")
-      .then((loadedConfig) => {
-        setConfig(loadedConfig);
-        setDraftConfig(loadedConfig);
-      })
-      .catch((error) => {
-        setConfig(fallbackConfig);
-        setDraftConfig(fallbackConfig);
-
-        if (runningInTauri) {
-          setErrorMessage(`Could not load settings: ${formatError(error)}`);
-        }
-      });
-  }, []);
-
   // Browser preview uses conservative fallbacks; Tauri supplies the local values.
   useEffect(() => {
-    invoke<SystemInfo>("get_system_info")
-      .then(setSystemInfo)
-      .catch(() => setSystemInfo(fallbackSystemInfo));
+    let cancelled = false;
 
-    invoke<GpuDevice[]>("get_gpu_devices")
-      .then(setGpuDevices)
-      .catch(() => setGpuDevices(fallbackGpuDevices));
-  }, []);
+    const loadStartupState = async () => {
+      const loadConfig = async () => {
+        try {
+          return await invoke<AppConfig>("get_config");
+        } catch (error) {
+          if (runningInTauri && !cancelled) {
+            setErrorMessage(`Could not load settings: ${formatError(error)}`);
+          }
+          return fallbackConfig;
+        }
+      };
+
+      const loadSystemInfo = async () => {
+        try {
+          return await invoke<SystemInfo>("get_system_info");
+        } catch {
+          return fallbackSystemInfo;
+        }
+      };
+
+      const loadGpuDevices = async () => {
+        try {
+          return await invoke<GpuDevice[]>("get_gpu_devices");
+        } catch (error) {
+          appendDevLog("system", `GPU detection failed: ${formatError(error)}`);
+          return fallbackGpuDevices;
+        }
+      };
+
+      const [loadedConfig, detectedSystemInfo, detectedGpuDevices] = await Promise.all([
+        loadConfig(),
+        loadSystemInfo(),
+        loadGpuDevices(),
+      ]);
+      if (cancelled) {
+        return;
+      }
+
+      const gpuDiagnostics = detectedGpuDevices
+        .map((device) => device.diagnostic)
+        .filter((diagnostic): diagnostic is string => Boolean(diagnostic));
+      if (gpuDiagnostics.length > 0) {
+        appendDevLog("system", `GPU detection diagnostic: ${gpuDiagnostics.join(" ")}`);
+      }
+
+      const adaptation = adaptConfigForHardware(loadedConfig, detectedSystemInfo, detectedGpuDevices);
+      if (adaptation.changed && adaptation.messages.length > 0) {
+        appendDevLog("system", `Hardware adaptation: ${adaptation.messages.join(" ")}`);
+        appendPetLog("Adjusted settings for this device.");
+      }
+
+      setSystemInfo(detectedSystemInfo);
+      setGpuDevices(detectedGpuDevices);
+      setConfig(adaptation.config);
+      setDraftConfig(adaptation.config);
+      setHardwareReady(true);
+    };
+
+    void loadStartupState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appendDevLog, appendPetLog]);
+
+  useEffect(() => {
+    if (!selectedMiningMode) {
+      return;
+    }
+
+    const runtimeMode = miningModeForRuntime(realModeEnabled, config.compute_mode, selectedMiningMode);
+    if (runtimeMode !== selectedMiningMode) {
+      setSelectedMiningMode(runtimeMode);
+    }
+  }, [config.compute_mode, realModeEnabled, selectedMiningMode]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -311,8 +728,16 @@ function App() {
       }
 
       setRealStats((current) => {
-        if (!isMiningRef.current || !realModeEnabledRef.current) {
-          return event.payload;
+        const activeRealMining = isMiningRef.current && realModeEnabledRef.current;
+        if (!activeRealMining) {
+          if (
+            event.payload.connection_status === "Stopped" ||
+            event.payload.connection_status === "GPU unavailable"
+          ) {
+            return { ...event.payload, hashrate: 0 };
+          }
+
+          return current;
         }
 
         if (event.payload.connection_status === "Stopped") {
@@ -323,6 +748,8 @@ function App() {
           ...event.payload,
           accepted_shares: Math.max(current.accepted_shares, event.payload.accepted_shares),
           rejected_shares: Math.max(current.rejected_shares, event.payload.rejected_shares),
+          stale_shares_dropped: Math.max(current.stale_shares_dropped, event.payload.stale_shares_dropped),
+          queued_shares_dropped: Math.max(current.queued_shares_dropped, event.payload.queued_shares_dropped ?? 0),
         };
       });
     })
@@ -347,14 +774,20 @@ function App() {
       const message = event.payload;
       const cleanMessage = message.replace(/^\[[^\]]+\]\s*/, "");
       appendDevLog("stratum", message);
-      const petMessage = petLogMessageFromRawLog(message);
+
+      const lowerMessage = message.toLowerCase();
+      const shouldSyncRealMining = isMiningRef.current && realModeEnabledRef.current;
+      const petMessage = shouldSyncRealMining ? petLogMessageFromRawLog(message) : null;
       if (petMessage) {
         appendPetLog(petMessage);
       }
 
-      const lowerMessage = message.toLowerCase();
-      const shouldSyncRealMining = isMiningRef.current && realModeEnabledRef.current;
-      if (lowerMessage.includes("share submitted") || lowerMessage.includes("share accepted") || lowerMessage.includes("share rejected")) {
+      if (
+        shouldSyncRealMining &&
+        (lowerMessage.includes("share submitted") ||
+          lowerMessage.includes("share accepted") ||
+          lowerMessage.includes("share rejected"))
+      ) {
         setLastShare(cleanMessage);
       }
 
@@ -371,23 +804,19 @@ function App() {
         }));
       }
 
-      if (lowerMessage.includes("share accepted")) {
+      if (shouldSyncRealMining && lowerMessage.includes("share accepted")) {
         emitMiningEvent(createShareEvent("share_accepted", "stratum", cleanMessage));
-        if (shouldSyncRealMining) {
-          // Share count is tracked by the backend via mining-stats events.
-          // We only trigger the notification here.
-          void invoke("notify_share_accepted", {
-            settings: notificationSettingsFromConfig(configRef.current),
-          }).catch(() => {});
-        }
-      } else if (lowerMessage.includes("share rejected")) {
+        // Share count is tracked by the backend via mining-stats events.
+        // We only trigger the notification here.
+        void invoke("notify_share_accepted", {
+          settings: notificationSettingsFromConfig(configRef.current),
+        }).catch(() => {});
+      } else if (shouldSyncRealMining && lowerMessage.includes("share rejected")) {
         emitMiningEvent(createShareEvent("share_rejected", "stratum", cleanMessage));
       }
 
-      if (lowerMessage.includes("connection error")) {
-        if (shouldSyncRealMining) {
-          setRealStats((current) => ({ ...current, connection_status: "Connection Error" }));
-        }
+      if (shouldSyncRealMining && lowerMessage.includes("connection error")) {
+        setRealStats((current) => ({ ...current, connection_status: "Connection Error" }));
         const now = Date.now();
         if (now - lastConnectionNotificationRef.current > 60_000) {
           lastConnectionNotificationRef.current = now;
@@ -513,9 +942,10 @@ function App() {
     }
   }, [activeBestDiff, appendPetLog, isMining]);
 
-  const startRealMiningConfirmed = async (realCpuThreads: number) => {
+  const startRealMiningConfirmed = async (runtimeProfile: RuntimeMiningProfile) => {
     isMiningRef.current = true;
     setIsMining(true);
+    setActiveRuntimeProfile(runtimeProfile);
     setRealStats((current) => ({
       ...current,
       hashrate: 0,
@@ -532,6 +962,10 @@ function App() {
     }));
 
     try {
+      const cpuKernelMode = cpuKernelModeForRouteAlgorithm(runtimeAlgorithmDiagnostic.routeCertificate.defaultAlgorithm);
+      if (runtimeProfile.appliedRecommendation) {
+        appendDevLog("diagnostic", runtimeProfile.reason);
+      }
       appendDevLog("stratum", `Starting real mining on ${config.pool_host}:${config.pool_port}`);
       await invoke("start_real_mining", {
         settings: {
@@ -540,16 +974,18 @@ function App() {
           poolPassword: config.pool_password,
           btcAddress: config.btc_address,
           workerName: config.worker_name,
-          cpuThreads: realCpuThreads,
+          cpuThreads: runtimeProfile.cpuThreads,
           confirmedCpuUse: true,
           gpuEnabled,
           gpuDeviceId: sanitizeGpuDeviceId(config.gpu_device_id, gpuDevices),
-          gpuIntensityPercent: config.gpu_intensity_percent,
+          gpuIntensityPercent: runtimeProfile.gpuIntensityPercent,
+          cpuKernelMode,
         },
       });
     } catch (error) {
       isMiningRef.current = false;
       setIsMining(false);
+      setActiveRuntimeProfile(null);
       setErrorMessage(String(error));
       appendDevLog("stratum", `Start real mining failed: ${formatError(error)}`);
       setRealStats((current) => ({ ...current, connection_status: "Connection Error" }));
@@ -569,6 +1005,7 @@ function App() {
   };
 
   const startSimulationSession = () => {
+    setActiveRuntimeProfile(null);
     isMiningRef.current = true;
     setIsMining(true);
     setSimAccepted(0);
@@ -580,11 +1017,10 @@ function App() {
     }));
   };
 
-  const realCpuThreadsForConfig = () => threadsForPreset(
-    config.performance_preset,
+  const runtimeMiningProfileForConfig = () => resolveRuntimeMiningProfile(
+    config,
     systemInfo,
-    config.cpu_threads,
-    config.compute_mode === "gpu",
+    runtimeAlgorithmDiagnostic.runtimeRecommendation,
   );
 
   const startRealMiningSession = async (kind: Exclude<MiningEngineKind, "simulation">) => {
@@ -595,11 +1031,11 @@ function App() {
       return;
     }
 
-    const realCpuThreads = realCpuThreadsForConfig();
+    const runtimeProfile = runtimeMiningProfileForConfig();
     const highCpuRequested =
-      realCpuThreads > 0 &&
+      runtimeProfile.cpuThreads > 0 &&
       (config.performance_preset === "turbo" ||
-        realCpuThreads > systemInfo.recommended_cpu_threads);
+        runtimeProfile.cpuThreads > systemInfo.recommended_cpu_threads);
 
     if (highCpuRequested) {
       setShowCpuWarning(true);
@@ -607,17 +1043,18 @@ function App() {
     }
 
     appendPetLog(kind === "gpu" ? "The GPU is warming up." : "I am listening for pool work.");
-    await startRealMiningConfirmed(realCpuThreads);
+    await startRealMiningConfirmed(runtimeProfile);
   };
 
   const confirmCpuWarning = async () => {
     setShowCpuWarning(false);
-    await startRealMiningConfirmed(realCpuThreadsForConfig());
+    await startRealMiningConfirmed(runtimeMiningProfileForConfig());
   };
 
   const beginMiningCooldown = () => {
     isMiningRef.current = false;
     setIsMining(false);
+    setActiveRuntimeProfile(null);
     setIsCoolingDown(true);
 
     // Clear simulation timers immediately to avoid late logs/flashes after STOP
@@ -682,32 +1119,48 @@ function App() {
     }
 
     const option = miningModeOption(mode);
-    setSelectedMiningMode(mode);
     setShowModeSelection(false);
     setRealModeEnabled(option.realModeEnabled);
     setErrorMessage(null);
     appendPetLog(`${option.title} selected.`);
 
-    const applyModeConfig = (current: AppConfig): AppConfig => ({
-      ...current,
+    const requestedConfig: AppConfig = {
+      ...config,
       compute_mode: option.computeMode,
       gpu_enabled: option.computeMode !== "cpu",
       real_mining_enabled: option.realModeEnabled,
-    });
+    };
+    const adaptation = adaptConfigForHardware(requestedConfig, systemInfo, gpuDevices);
+    if (adaptation.messages.length > 0) {
+      appendDevLog("system", `Mode adapted for this device: ${adaptation.messages.join(" ")}`);
+      appendPetLog("Mode adjusted for this device.");
+      if (option.computeMode === "gpu" && adaptation.config.compute_mode !== "gpu") {
+        setErrorMessage("No hardware GPU detected. Using CPU mining mode on this device.");
+      }
+    }
 
-    setConfig(applyModeConfig);
-    setDraftConfig(applyModeConfig);
+    setConfig(adaptation.config);
+    setDraftConfig(adaptation.config);
+    setSelectedMiningMode(miningModeForRuntime(option.realModeEnabled, adaptation.config.compute_mode, mode));
   };
 
   const saveSettings = async () => {
     setErrorMessage(null);
 
-    const settings = normalizeAppConfig(draftConfig, systemInfo, gpuDevices);
+    const adaptation = adaptConfigForHardware(draftConfig, systemInfo, gpuDevices);
+    const settings = adaptation.config;
+    if (adaptation.messages.length > 0) {
+      appendDevLog("system", `Settings adapted for this device: ${adaptation.messages.join(" ")}`);
+      appendPetLog("Settings adjusted for this device.");
+    }
 
     try {
       const savedSettings = await invoke<AppConfig>("save_config", { config: settings });
       setConfig(savedSettings);
       setDraftConfig(savedSettings);
+      setSelectedMiningMode((current) => (
+        current ? miningModeForRuntime(realModeEnabled, savedSettings.compute_mode, current) : current
+      ));
     } catch (error) {
       if (runningInTauri) {
         setErrorMessage(`Could not save settings: ${formatError(error)}`);
@@ -716,6 +1169,9 @@ function App() {
 
       setConfig(settings);
       setDraftConfig(settings);
+      setSelectedMiningMode((current) => (
+        current ? miningModeForRuntime(realModeEnabled, settings.compute_mode, current) : current
+      ));
     }
 
     setShowSettings(false);
@@ -796,6 +1252,7 @@ function App() {
     }
   };
 
+
   const {
     openLogs,
     copyLogPath,
@@ -809,6 +1266,48 @@ function App() {
       .slice(0, 40)
       .map((entry) => `[${entry.timestamp}] ${entry.source}: ${entry.message}`)
       .join("\n"),
+    getFrontendDiagnosticSections: ({ backendDiagnosticSnapshot }) => [
+      {
+        title: "Frontend Optimization Evidence",
+        body: formatOptimizationEvidenceSnapshot(createOptimizationEvidenceSnapshot({
+          tuningObservations: tuningEvidence,
+          externalHashHistory: [],
+          preferredGoal: optimizationGoalForPreset(config.performance_preset),
+        })),
+      },
+      {
+        title: "Frontend Mining Algorithm Plan",
+        body: formatMiningAlgorithmDiagnosticSnapshot(createMiningAlgorithmDiagnosticSnapshot({
+          config,
+          telemetry: null,
+          tuningObservations: tuningEvidence,
+          tuningHistory: tuningReplicationHistory,
+          externalHashHistory: [],
+          externalOperatingEvidenceSamples: [],
+          algorithmKernelBenchmark: backendDiagnosticSnapshot.algorithmKernelBenchmark,
+          goal: optimizationGoalForPreset(config.performance_preset),
+          availableCpuThreads: systemInfo.available_parallelism,
+          recommendedCpuThreads: systemInfo.recommended_cpu_threads,
+          hardwareGpuAvailable: hasHardwareGpuDevice(gpuDevices),
+          observedHashrate: observedEfficiencyHashrate,
+          observedComputeMode: observedEfficiencyHashrate ? config.compute_mode : null,
+          observedCpuThreads,
+          observedGpuIntensityPercent,
+          observedSampleSeconds: runtimeDiagnosticElapsedSeconds,
+          acceptedShares: runtimeDiagnosticShareCounters.acceptedShares,
+          rejectedShares: runtimeDiagnosticShareCounters.rejectedShares,
+          staleSharesDropped: runtimeDiagnosticShareCounters.staleSharesDropped,
+          queuedSharesDropped: runtimeDiagnosticShareCounters.queuedSharesDropped,
+          gpuDispatchMs: realModeEnabled ? realStats.gpu_dispatch_ms : 0,
+          gpuThrottleMs: realModeEnabled ? realStats.gpu_throttle_ms : 0,
+          benchmarkHashrate: benchmarkResult && !benchmarkResult.simulated ? benchmarkResult.hashrate : null,
+          benchmarkGpuIntensityPercent: benchmarkResult && !benchmarkResult.simulated ? benchmarkResult.gpu_intensity_percent : null,
+          currentComputeMode: config.compute_mode,
+          currentCpuThreads: effectiveCpuThreads,
+          currentGpuIntensityPercent,
+        })),
+      },
+    ],
   });
 
   const toggleAlwaysOnTop = async () => {
@@ -856,15 +1355,12 @@ function App() {
       label: petStateLabel(petState),
     }),
   };
-  const miningEngine: MiningEngine = !realModeEnabled
-    ? createSimulationEngineAdapter(engineLifecycle)
-    : selectedMiningMode === "solo"
-      ? createStratumEngine(engineLifecycle)
-      : config.compute_mode === "cpu"
-        ? createCpuEngine(engineLifecycle)
-      : config.compute_mode === "gpu"
-        ? createGpuEngine(engineLifecycle)
-        : createGpuEngine(engineLifecycle);
+  const miningEngine = useMiningEngineController({
+    realModeEnabled,
+    selectedMiningMode,
+    computeMode: config.compute_mode,
+    lifecycle: engineLifecycle,
+  });
   const miningEngineStatus = miningEngine.status();
 
   useEffect(() => {
@@ -905,7 +1401,7 @@ function App() {
         if (jackpotSequence.engineKind === "simulation") {
           startSimulationSession();
         } else {
-          await startRealMiningConfirmed(realCpuThreadsForConfig());
+          await startRealMiningConfirmed(runtimeMiningProfileForConfig());
         }
       }
 
@@ -942,8 +1438,22 @@ function App() {
   const sharesValue = realModeEnabled
     ? `${realStats.accepted_shares} / ${realStats.rejected_shares}`
     : `${simAccepted} / ${simRejected}`;
+  const staleDropsValue = realModeEnabled ? `${realStats.stale_shares_dropped}` : "SIM";
+  const queueDropsValue = realModeEnabled ? `${realStats.queued_shares_dropped}` : "SIM";
   const acceptedShares = realModeEnabled ? realStats.accepted_shares : simAccepted;
   const rejectedShares = realModeEnabled ? realStats.rejected_shares : simRejected;
+  const currentTuningShareCounters = useMemo<TuningShareCounters>(() => ({
+    acceptedShares,
+    rejectedShares,
+    staleSharesDropped: realModeEnabled ? realStats.stale_shares_dropped : 0,
+    queuedSharesDropped: realModeEnabled ? realStats.queued_shares_dropped : 0,
+  }), [
+    acceptedShares,
+    realModeEnabled,
+    realStats.queued_shares_dropped,
+    realStats.stale_shares_dropped,
+    rejectedShares,
+  ]);
   const activeHashrate = realModeEnabled ? realStats.hashrate : simulationStats.hashrate * 1_000_000;
 
   const displayedHashrate = realModeEnabled
@@ -997,12 +1507,248 @@ function App() {
   const currentDifficultyValue = probabilitySnapshot.currentDifficulty
     ? formatDifficulty(probabilitySnapshot.currentDifficulty)
     : "Waiting";
-  const effectiveCpuThreads = threadsForPreset(
+  const configuredCpuThreads = threadsForPreset(
     config.performance_preset,
     systemInfo,
     config.cpu_threads,
     config.compute_mode === "gpu",
   );
+  const effectiveCpuThreads = realModeEnabled && activeRuntimeProfile
+    ? activeRuntimeProfile.cpuThreads
+    : configuredCpuThreads;
+  const effectiveGpuIntensityPercent = realModeEnabled && activeRuntimeProfile
+    ? activeRuntimeProfile.gpuIntensityPercent
+    : config.gpu_intensity_percent;
+  const observedEfficiencyHashrate = realModeEnabled && isMining && miningUptime >= MIN_EFFICIENCY_OBSERVATION_SECONDS && realStats.hashrate > 0
+    ? realStats.hashrate
+    : null;
+  const observedCpuThreads = observedEfficiencyHashrate ? effectiveCpuThreads : null;
+  const observedGpuIntensityPercent = observedEfficiencyHashrate
+    ? config.compute_mode === "cpu" ? 0 : effectiveGpuIntensityPercent
+    : null;
+  const currentGpuIntensityPercent = config.compute_mode === "cpu" ? 0 : effectiveGpuIntensityPercent;
+  const runtimeTuningSweepPlan = useMemo(() => createTuningSweepPlan({
+    goal: optimizationGoalForPreset(config.performance_preset),
+    availableCpuThreads: systemInfo.available_parallelism,
+    recommendedCpuThreads: systemInfo.recommended_cpu_threads,
+    hardwareGpuAvailable: hasHardwareGpuDevice(gpuDevices),
+    observedHashrate: observedEfficiencyHashrate,
+    observedComputeMode: observedEfficiencyHashrate ? config.compute_mode : null,
+    observedCpuThreads,
+    observedGpuIntensityPercent,
+    benchmarkHashrate: benchmarkResult && !benchmarkResult.simulated ? benchmarkResult.hashrate : null,
+    benchmarkGpuIntensityPercent: benchmarkResult && !benchmarkResult.simulated
+      ? benchmarkResult.gpu_intensity_percent
+      : null,
+    currentComputeMode: config.compute_mode,
+    currentCpuThreads: effectiveCpuThreads,
+    currentGpuIntensityPercent,
+    maxSteps: 5,
+    sampleSeconds: AUTO_TUNING_SAMPLE_WINDOW_SECONDS,
+  }), [
+    benchmarkResult?.gpu_intensity_percent,
+    benchmarkResult?.hashrate,
+    benchmarkResult?.simulated,
+    config.compute_mode,
+    config.performance_preset,
+    currentGpuIntensityPercent,
+    effectiveCpuThreads,
+    gpuDevices,
+    observedCpuThreads,
+    observedEfficiencyHashrate,
+    observedGpuIntensityPercent,
+    systemInfo.available_parallelism,
+    systemInfo.recommended_cpu_threads,
+  ]);
+  const runtimeActiveTuningStep = useMemo(() => {
+    if (!observedEfficiencyHashrate) {
+      return null;
+    }
+    return findTuningSweepStepForRuntime(runtimeTuningSweepPlan, {
+      computeMode: config.compute_mode,
+      cpuThreads: observedCpuThreads,
+      gpuIntensityPercent: observedGpuIntensityPercent,
+    });
+  }, [config.compute_mode, observedCpuThreads, observedEfficiencyHashrate, observedGpuIntensityPercent, runtimeTuningSweepPlan.steps]);
+  const runtimeProfileWindowKey = [
+    isMining ? "mining" : "idle",
+    realModeEnabled ? "real" : "sim",
+    runtimeActiveTuningStep?.id ?? "none",
+  ].join(":");
+  const effectiveRuntimeProfileWindowBaseline = runtimeProfileWindowBaseline.key === runtimeProfileWindowKey && runtimeProfileWindowBaseline.shareCounters
+    ? runtimeProfileWindowBaseline
+    : { key: runtimeProfileWindowKey, shareCounters: currentTuningShareCounters, sampleSeconds: miningUptime };
+  const runtimeDiagnosticElapsedSeconds = useMemo(() => (
+    calculateTuningWindowElapsedSeconds(
+      observedEfficiencyHashrate ? miningUptime : null,
+      effectiveRuntimeProfileWindowBaseline.sampleSeconds,
+    )
+  ), [effectiveRuntimeProfileWindowBaseline.sampleSeconds, miningUptime, observedEfficiencyHashrate]);
+  const runtimeDiagnosticShareCounters = useMemo(() => (
+    diffTuningShareCounters(currentTuningShareCounters, effectiveRuntimeProfileWindowBaseline.shareCounters)
+  ), [currentTuningShareCounters, effectiveRuntimeProfileWindowBaseline]);
+
+  useEffect(() => {
+    setRuntimeProfileWindowBaseline({
+      key: runtimeProfileWindowKey,
+      shareCounters: currentTuningShareCounters,
+      sampleSeconds: miningUptime,
+    });
+  }, [runtimeProfileWindowKey]);
+
+  useEffect(() => {
+    if (!hasTuningWindowCounterReset(
+      observedEfficiencyHashrate ? miningUptime : null,
+      effectiveRuntimeProfileWindowBaseline.sampleSeconds,
+    )) {
+      return;
+    }
+    setRuntimeProfileWindowBaseline({
+      key: runtimeProfileWindowKey,
+      shareCounters: currentTuningShareCounters,
+      sampleSeconds: miningUptime,
+    });
+  }, [currentTuningShareCounters, effectiveRuntimeProfileWindowBaseline.sampleSeconds, miningUptime, observedEfficiencyHashrate, runtimeProfileWindowKey]);
+
+  const runtimeAlgorithmDiagnostic = useMemo(() => createMiningAlgorithmRuntimeSnapshot({
+    config,
+    telemetry: null,
+    tuningObservations: tuningEvidence,
+    tuningHistory: tuningReplicationHistory,
+    externalHashHistory: [],
+    externalOperatingEvidenceSamples: [],
+    goal: optimizationGoalForPreset(config.performance_preset),
+    availableCpuThreads: systemInfo.available_parallelism,
+    recommendedCpuThreads: systemInfo.recommended_cpu_threads,
+    hardwareGpuAvailable: hasHardwareGpuDevice(gpuDevices),
+    observedHashrate: observedEfficiencyHashrate,
+    observedComputeMode: observedEfficiencyHashrate ? config.compute_mode : null,
+    observedCpuThreads,
+    observedGpuIntensityPercent,
+    observedSampleSeconds: runtimeDiagnosticElapsedSeconds,
+    acceptedShares: runtimeDiagnosticShareCounters.acceptedShares,
+    rejectedShares: runtimeDiagnosticShareCounters.rejectedShares,
+    staleSharesDropped: runtimeDiagnosticShareCounters.staleSharesDropped,
+    queuedSharesDropped: runtimeDiagnosticShareCounters.queuedSharesDropped,
+    gpuDispatchMs: realModeEnabled ? realStats.gpu_dispatch_ms : 0,
+    gpuThrottleMs: realModeEnabled ? realStats.gpu_throttle_ms : 0,
+    benchmarkHashrate: benchmarkResult && !benchmarkResult.simulated ? benchmarkResult.hashrate : null,
+    benchmarkGpuIntensityPercent: benchmarkResult && !benchmarkResult.simulated ? benchmarkResult.gpu_intensity_percent : null,
+    currentComputeMode: config.compute_mode,
+    currentCpuThreads: effectiveCpuThreads,
+    currentGpuIntensityPercent,
+  }), [
+    benchmarkResult,
+    config,
+    effectiveCpuThreads,
+    currentGpuIntensityPercent,
+    gpuDevices,
+    observedEfficiencyHashrate,
+    runtimeDiagnosticElapsedSeconds,
+    runtimeDiagnosticShareCounters,
+    realModeEnabled,
+    realStats.gpu_dispatch_ms,
+    realStats.gpu_throttle_ms,
+    systemInfo.available_parallelism,
+    systemInfo.recommended_cpu_threads,
+    tuningEvidence,
+    tuningReplicationHistory,
+  ]);
+
+  const runtimeExistingTuningObservation = runtimeActiveTuningStep
+    ? tuningEvidence.find((observation) => observation.stepId === runtimeActiveTuningStep.id) ?? null
+    : null;
+  const runtimeObjectiveCapturePolicy = runtimeAlgorithmDiagnostic.objectiveExperiment.capturePolicy.mode === "local_sample" &&
+    runtimeAlgorithmDiagnostic.objectiveExperiment.capturePolicy.enabled
+    ? runtimeAlgorithmDiagnostic.objectiveExperiment.capturePolicy
+    : null;
+  const runtimeAutoElapsedSeconds = useMemo(() => (
+    calculateTuningWindowElapsedSeconds(observedEfficiencyHashrate ? miningUptime : null, tuningAutoSampleBaselineSeconds)
+  ), [miningUptime, observedEfficiencyHashrate, tuningAutoSampleBaselineSeconds]);
+  const runtimeAutoSampleGate = useMemo(() => evaluateTuningAutoSampleGate({
+    enabled: Boolean(runtimeObjectiveCapturePolicy),
+    activeStep: runtimeActiveTuningStep,
+    observedHashrate: observedEfficiencyHashrate,
+    elapsedSeconds: runtimeAutoElapsedSeconds,
+    existingObservation: runtimeExistingTuningObservation,
+    requiredStepId: runtimeObjectiveCapturePolicy?.requiredStepId ?? null,
+    hasMeasuredPower: false,
+    requireMeasuredPower: runtimeObjectiveCapturePolicy?.requireMeasuredPower ?? false,
+    minCaptureSeconds: runtimeObjectiveCapturePolicy?.minCaptureSeconds ?? runtimeActiveTuningStep?.sampleSeconds,
+    refreshSeconds: runtimeObjectiveCapturePolicy?.refreshSeconds ?? runtimeObjectiveCapturePolicy?.minCaptureSeconds ?? runtimeActiveTuningStep?.sampleSeconds,
+  }), [
+    observedEfficiencyHashrate,
+    runtimeAutoElapsedSeconds,
+    runtimeActiveTuningStep,
+    runtimeExistingTuningObservation,
+    runtimeObjectiveCapturePolicy,
+  ]);
+
+  useEffect(() => {
+    tuningAutoShareBaselineRef.current = currentTuningShareCounters;
+    tuningAutoSampleBaselineSecondsRef.current = miningUptime;
+    setTuningAutoSampleBaselineSeconds(miningUptime);
+    tuningAutoLastCaptureKeyRef.current = null;
+  }, [isMining, realModeEnabled, runtimeActiveTuningStep?.id]);
+
+  useEffect(() => {
+    if (!hasTuningWindowCounterReset(observedEfficiencyHashrate ? miningUptime : null, tuningAutoSampleBaselineSecondsRef.current)) {
+      return;
+    }
+    tuningAutoShareBaselineRef.current = currentTuningShareCounters;
+    tuningAutoSampleBaselineSecondsRef.current = miningUptime;
+    setTuningAutoSampleBaselineSeconds(miningUptime);
+    tuningAutoLastCaptureKeyRef.current = null;
+  }, [currentTuningShareCounters, miningUptime, observedEfficiencyHashrate]);
+
+  useEffect(() => {
+    const captureElapsedSeconds = calculateTuningWindowElapsedSeconds(
+      observedEfficiencyHashrate ? miningUptime : null,
+      tuningAutoSampleBaselineSecondsRef.current,
+    );
+    const captureGate = evaluateTuningAutoSampleGate({
+      enabled: Boolean(runtimeObjectiveCapturePolicy),
+      activeStep: runtimeActiveTuningStep,
+      observedHashrate: observedEfficiencyHashrate,
+      elapsedSeconds: captureElapsedSeconds,
+      existingObservation: runtimeExistingTuningObservation,
+      requiredStepId: runtimeObjectiveCapturePolicy?.requiredStepId ?? null,
+      hasMeasuredPower: false,
+      requireMeasuredPower: runtimeObjectiveCapturePolicy?.requireMeasuredPower ?? false,
+      minCaptureSeconds: runtimeObjectiveCapturePolicy?.minCaptureSeconds ?? runtimeActiveTuningStep?.sampleSeconds,
+      refreshSeconds: runtimeObjectiveCapturePolicy?.refreshSeconds ?? runtimeObjectiveCapturePolicy?.minCaptureSeconds ?? runtimeActiveTuningStep?.sampleSeconds,
+    });
+    const captureDecision = createTuningAutoSampleCapture({
+      gate: captureGate,
+      activeStep: runtimeActiveTuningStep,
+      observedHashrate: observedEfficiencyHashrate,
+      elapsedSeconds: captureElapsedSeconds,
+      currentShareCounters: currentTuningShareCounters,
+      baselineShareCounters: tuningAutoShareBaselineRef.current,
+      gpuDispatchMs: realModeEnabled ? realStats.gpu_dispatch_ms : 0,
+      gpuThrottleMs: realModeEnabled ? realStats.gpu_throttle_ms : 0,
+      requireMeasuredPower: runtimeObjectiveCapturePolicy?.requireMeasuredPower ?? false,
+      lastCaptureKey: tuningAutoLastCaptureKeyRef.current,
+    });
+    if (!captureDecision.observation || !captureDecision.captureKey) {
+      return;
+    }
+
+    tuningAutoLastCaptureKeyRef.current = captureDecision.captureKey;
+    captureTuningObservation(captureDecision.observation);
+    tuningAutoShareBaselineRef.current = captureDecision.nextShareBaseline ?? currentTuningShareCounters;
+  }, [
+    captureTuningObservation,
+    currentTuningShareCounters,
+    observedEfficiencyHashrate,
+    runtimeAutoElapsedSeconds,
+    realModeEnabled,
+    realStats.gpu_dispatch_ms,
+    realStats.gpu_throttle_ms,
+    runtimeActiveTuningStep,
+    runtimeExistingTuningObservation,
+    runtimeObjectiveCapturePolicy,
+  ]);
 
   const modeLabel = realModeEnabled
     ? config.compute_mode === "gpu"
@@ -1013,7 +1759,7 @@ function App() {
     : "Simulation";
 
   const gpuConfigMetrics: [string, string][] =
-    config.compute_mode !== "cpu" ? [["GPU LIMIT", `${config.gpu_intensity_percent}%`]] : [];
+    config.compute_mode !== "cpu" ? [["GPU LIMIT", `${effectiveGpuIntensityPercent}%`]] : [];
   const gpuRuntimeMetrics: [string, string][] = realModeEnabled && gpuEnabled
     ? [
         ["GPU BACKEND", realStats.gpu_backend || "Starting"],
@@ -1041,6 +1787,20 @@ function App() {
     ["PRESET", performancePresetLabel(config.performance_preset)],
     ["CPU THREADS", `${effectiveCpuThreads}`],
     ["RECOMMENDED", `${systemInfo.recommended_cpu_threads}`],
+    ["ALGO CORE", compactRouteAlgorithm(runtimeAlgorithmDiagnostic.objectiveAudit.currentAlgorithm)],
+    ["ALGO STAGE", compactObjectiveAuditStage(runtimeAlgorithmDiagnostic.objectiveAudit.stage)],
+    ["ALGO CLAIM", compactObjectiveAuditClaims(runtimeAlgorithmDiagnostic.objectiveAudit)],
+    ["ALGO NEED", compactObjectiveAuditEvidence(runtimeAlgorithmDiagnostic.objectiveAudit.requiredEvidenceIds)],
+    ["OBJECTIVE", compactObjectiveStatus(runtimeAlgorithmDiagnostic.objectiveCertificate)],
+    ["OBJ SCORE", compactObjectiveScore(runtimeAlgorithmDiagnostic.objectiveCertificate)],
+    ["OBJ GAP", compactObjectiveGap(runtimeAlgorithmDiagnostic.objectiveCertificate.primaryEvidenceGap)],
+    ["POWER LANE", compactPowerLane(runtimeAlgorithmDiagnostic.objectiveCertificate)],
+    ["HASH PATH", compactHighHashPath(runtimeAlgorithmDiagnostic.objectiveCertificate.highHashPath)],
+    ["OBJ ACTION", compactObjectiveAction(runtimeAlgorithmDiagnostic.objectiveActionPlan.action)],
+    ["AUTO SAMPLE", runtimeAutoSampleGate.status.replace(/_/g, " ").toUpperCase()],
+    ["LOW CLAIM", compactClaimStatus(runtimeAlgorithmDiagnostic.claimCertificate.lowestPower)],
+    ["HASH CLAIM", compactClaimStatus(runtimeAlgorithmDiagnostic.claimCertificate.highestHash)],
+    ["CLAIM NEXT", compactClaimNextAction(runtimeAlgorithmDiagnostic.claimCertificate.nextAction)],
     ["MODE", modeLabel],
     ...gpuConfigMetrics,
     ...gpuRuntimeMetrics,
@@ -1056,6 +1816,8 @@ function App() {
     ["SHARES/H", shareRateValue],
     ["BLOCK HEIGHT", blockHeight],
     ["SHARES A / R", sharesValue],
+    ["STALE DROPS", staleDropsValue],
+    ["QUEUE DROPS", queueDropsValue],
     ["APP UPTIME", formatUptime(appUptime)],
     ["MINING UPTIME", formatUptime(miningUptime)],
   ];
@@ -1134,7 +1896,7 @@ function App() {
 
       <footer>
         <span className={`dot ${realModeEnabled ? "armed" : ""}`} />
-        {miningModeLabel(selectedMiningMode)} · {realModeEnabled
+        {miningModeLabel(selectedMiningMode)} Â· {realModeEnabled
           ? config.compute_mode === "gpu"
             ? "GPU real mining"
             : config.compute_mode === "hybrid"
@@ -1228,7 +1990,22 @@ function App() {
           runGpuBenchmark={runGpuBenchmark}
           runPoolDiagnostic={runPoolDiagnostic}
           benchmarkResult={benchmarkResult}
+          observedHashrate={observedEfficiencyHashrate}
+          observedSampleSeconds={observedEfficiencyHashrate ? miningUptime : null}
+          observedComputeMode={observedEfficiencyHashrate ? config.compute_mode : null}
+          observedCpuThreads={observedCpuThreads}
+          observedGpuIntensityPercent={observedGpuIntensityPercent}
+          acceptedShares={acceptedShares}
+          rejectedShares={rejectedShares}
+          staleSharesDropped={realModeEnabled ? realStats.stale_shares_dropped : 0}
+          queuedSharesDropped={realModeEnabled ? realStats.queued_shares_dropped : 0}
+          gpuDispatchMs={realModeEnabled ? realStats.gpu_dispatch_ms : 0}
+          gpuThrottleMs={realModeEnabled ? realStats.gpu_throttle_ms : 0}
           poolDiagnosticResult={poolDiagnosticResult}
+          tuningEvidence={tuningEvidence}
+          tuningReplicationHistory={tuningReplicationHistory}
+          captureTuningObservation={captureTuningObservation}
+          clearTuningEvidence={clearTuningEvidence}
           gpuDevices={gpuDevices}
           systemInfo={systemInfo}
           formatHashrate={formatHashrate}
@@ -1238,6 +2015,7 @@ function App() {
           isGpuComputeMode={isGpuComputeMode}
           hasHardwareGpuDevice={hasHardwareGpuDevice}
           hasSoftwareGpuDevice={hasSoftwareGpuDevice}
+          hardwareReady={hardwareReady}
         />
       )}
 
@@ -1254,7 +2032,7 @@ function App() {
             <p className="eyebrow">{jackpotPhaseLabel(jackpotSequence.phase)}</p>
             <h2>JACKPOT</h2>
             <p>
-              Network target met. The candidate was saved to found_block.json in the app log folder.
+              Network target met. The candidate was saved to a timestamped found_block_*.json file in the app log folder.
             </p>
             <dl>
               <div>

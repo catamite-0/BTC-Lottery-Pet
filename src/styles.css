@@ -2384,9 +2384,98 @@ h1 {
   white-space: nowrap;
 }
 
+.local-runtime-focus {
+  background:
+    linear-gradient(135deg, rgba(124, 255, 209, 0.14), transparent 46%),
+    rgba(7, 12, 18, 0.74);
+  border: 1px solid rgba(124, 255, 209, 0.28);
+  border-radius: 7px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(150px, 0.8fr);
+  margin-top: 8px;
+  padding: 9px;
+}
+
+.local-runtime-heading,
+.local-runtime-chip {
+  min-width: 0;
+}
+
+.local-runtime-heading span,
+.local-runtime-chip span {
+  color: #8f9aaa;
+  display: block;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.local-runtime-heading b {
+  color: #7cffd1;
+  font: 800 10px "Cascadia Mono", Consolas, monospace;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.local-runtime-heading em {
+  color: #d8efe8;
+  display: block;
+  font-size: 8px;
+  font-style: normal;
+  line-height: 1.35;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+
+.local-runtime-chips {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: 1fr;
+  min-width: 0;
+}
+
+.local-runtime-chip {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+}
+
+.local-runtime-chip b {
+  color: #e9f7f2;
+  display: block;
+  font: 800 8px "Cascadia Mono", Consolas, monospace;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.local-runtime-chip.route-ready,
+.local-runtime-chip.runtime-run_density_default,
+.local-runtime-chip.runtime-probe_next_profile,
+.local-runtime-chip.tuning-local_profile {
+  border-color: rgba(124, 255, 209, 0.32);
+}
+
+.local-runtime-chip.route-blocked,
+.local-runtime-chip.runtime-runtime_guard {
+  border-color: rgba(255, 140, 125, 0.34);
+}
+
+.local-runtime-chip.route-waiting,
+.local-runtime-chip.route-partial,
+.local-runtime-chip.tuning-research_review {
+  border-color: rgba(255, 207, 122, 0.3);
+}
 .external-hash-summary {
-  background: rgba(124, 255, 209, 0.055);
-  border: 1px solid rgba(124, 255, 209, 0.16);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 207, 122, 0.16);
   border-radius: 6px;
   display: grid;
   gap: 3px;
@@ -2419,58 +2508,11 @@ h1 {
 }
 
 .external-hash-summary b {
-  color: #7cffd1;
-}
-
-.external-interface-spec.spec-dry-run-candidate,
-.external-interface-spec.spec-telemetry-reference {
-  color: #7cffd1;
-}
-
-.external-interface-spec.spec-read-only-probe,
-.external-interface-spec.spec-reserved,
-.external-interface-spec.spec-missing-endpoint {
   color: #ffcf7a;
 }
 
-.external-interface-spec.spec-disabled {
-  color: #8f9aaa;
-}
-
-.external-protocol-contract.contract-dry-run-only {
-  color: #7cffd1;
-}
-
-.external-protocol-contract.contract-telemetry-only,
-.external-protocol-contract.contract-reserved-direct {
-  color: #ffcf7a;
-}
-
-.external-protocol-contract.contract-disabled {
-  color: #8f9aaa;
-}
-
-.external-release-gate.release-release_candidate {
-  color: #7cffd1;
-}
-
-.external-release-gate.release-waiting {
-  color: #ffcf7a;
-}
-
-.external-release-gate.release-blocked {
-  color: #ff9d91;
-}
-.external-measurement-step.measure-done {
-  color: #7cffd1;
-}
-
-.external-measurement-step.measure-ready {
-  color: #7dd3fc;
-}
-
-.external-measurement-step.measure-blocked {
-  color: #ff9d91;
+.external-hash-summary.sealed {
+  opacity: 0.88;
 }
 
 .algorithm-plan-card {
@@ -3363,6 +3405,10 @@ h1 {
 }
 
 @media (max-width: 520px) {
+  .local-runtime-focus {
+    grid-template-columns: 1fr;
+  }
+
   .tuning-session-summary {
     grid-template-columns: 1fr;
   }

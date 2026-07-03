@@ -317,6 +317,18 @@ export interface MiningAlgorithmDiagnosticSnapshot {
   riskFlags: string[];
 }
 
+export interface MiningAlgorithmRuntimeSnapshot {
+  schemaVersion: 1;
+  generatedAt: string;
+  routeCertificate: AlgorithmRouteCertificate;
+  runtimeRecommendation: AlgorithmRuntimeRecommendationSnapshot;
+  objectiveExperiment: AlgorithmObjectiveExperimentPlan;
+  objectiveAudit: AlgorithmObjectiveAuditSnapshot;
+  objectiveCertificate: AlgorithmObjectiveCertificate;
+  objectiveActionPlan: AlgorithmObjectiveActionPlan;
+  claimCertificate: HashClaimCertificate;
+}
+
 function normalizeGoal(goal: EfficiencyGoal | null | undefined): EfficiencyGoal {
   return goal === "lowest_power" || goal === "max_efficiency" || goal === "max_hashrate" ? goal : "balanced";
 }
@@ -461,27 +473,7 @@ function buildPlan(input: MiningAlgorithmDiagnosticInput) {
   const externalSnapshot = deriveExternalHashSnapshot(input.config, input.telemetry ?? null);
   const externalCapabilityMatrix = deriveExternalHashCapabilityMatrix(externalSnapshot);
   const externalWorkAdapterPlan = deriveExternalHashWorkAdapterPlan(externalSnapshot, externalCapabilityMatrix);
-  const externalHistorySummary = summarizeExternalHashHistory(input.externalHashHistory);
-  const operatingEvidenceSamples = input.externalOperatingEvidenceSamples ??
-    deriveHashHardwareOperatingEvidenceSamplesFromExternalHistory(input.externalHashHistory);
-  const operatingEvidence = assessHashHardwareOperatingEvidence(operatingEvidenceSamples);
-  const externalReleaseWorkAdapterPlan = deriveExternalHashWorkAdapterPlan(externalSnapshot, externalCapabilityMatrix);
-  const externalHardwareCandidate = assessHashHardwareCandidate({
-    id: externalSnapshot.endpoint || externalSnapshot.interfaceKind,
-    label: externalSnapshot.label || externalSnapshot.endpoint || "External Candidate",
-    interfaceKind: externalSnapshot.interfaceKind === "network" || externalSnapshot.interfaceKind === "direct" ? externalSnapshot.interfaceKind : "unknown",
-    hashrate: operatingEvidence.effectiveHashrate ?? externalSnapshot.hashrate ?? externalHistorySummary.averageHashrate,
-    watts: operatingEvidence.averageWallWatts ?? externalSnapshot.watts ?? externalHistorySummary.averageWatts,
-    joulesPerTerahash: operatingEvidence.effectiveJoulesPerTerahash ?? operatingEvidence.bestJoulesPerTerahash ?? externalSnapshot.joulesPerTerahash ?? externalHistorySummary.averageJoulesPerTerahash ?? externalHistorySummary.bestJoulesPerTerahash,
-    supportsTelemetry: externalCapabilityMatrix.canReadTelemetry,
-    supportsPowerTelemetry: externalCapabilityMatrix.canCompareEfficiency,
-    supportsJobControl: externalCapabilityMatrix.canControlMining,
-    supportsShareSubmission: externalCapabilityMatrix.canSubmitShares,
-    supportsVersionRolling: externalCapabilityMatrix.canRollVersion,
-    supportsWorkPartitioning: externalCapabilityMatrix.canPartitionWork,
-    parallelWorkers: externalSnapshot.parallelWorkers,
-    targetJobSeconds: 1,
-  }, normalizeGoal(input.goal));
+  const externalHistorySummary = summarizeExternalHashHistory([]);
   const kernelBenchmark = deriveHashKernelBenchmarkEvidence(input.algorithmKernelBenchmark ?? null);
   const plan = deriveMiningAlgorithmPlan({
     tuningAnalysis,
@@ -489,7 +481,7 @@ function buildPlan(input: MiningAlgorithmDiagnosticInput) {
     externalSnapshot,
     externalCapabilityMatrix,
     externalWorkAdapterPlan,
-    externalOperatingEvidence: operatingEvidence,
+    externalOperatingEvidence: null,
     externalAlgorithmMode: "local_only",
     midstateReuseReady: kernelBenchmark.status === "passed" ? true : kernelBenchmark.status === "blocked" ? false : null,
     midstatePerformance: kernelBenchmark.performance,
@@ -498,9 +490,25 @@ function buildPlan(input: MiningAlgorithmDiagnosticInput) {
   return { plan, tuningSweepPlan, tuningAnalysis, kernelBenchmark };
 }
 
-export function createMiningAlgorithmDiagnosticSnapshot(
+function createLocalClaimCertificate(
   input: MiningAlgorithmDiagnosticInput,
-): MiningAlgorithmDiagnosticSnapshot {
+  plan: MiningAlgorithmPlan,
+  generatedAt: string,
+) {
+  return createHashClaimCertificate({
+    tuningObservations: input.tuningObservations,
+    tuningHistory: input.tuningHistory ?? input.tuningObservations,
+    externalHashHistory: [],
+    externalEffectiveHashrate: null,
+    preferredGoal: normalizeGoal(input.goal),
+    externalWorkAssignable: false,
+    externalMiningStartAllowed: false,
+    marginalDecision: plan.densityPlan.marginalDecision,
+    generatedAt,
+  });
+}
+
+function buildRuntimeDiagnostic(input: MiningAlgorithmDiagnosticInput) {
   const generatedAt = input.generatedAt ?? new Date().toISOString();
   const { plan, tuningSweepPlan, tuningAnalysis, kernelBenchmark } = buildPlan({ ...input, generatedAt });
   const runtimeEfficiency = deriveHashRuntimeEfficiencySnapshot({
@@ -678,7 +686,94 @@ export function createMiningAlgorithmDiagnosticSnapshot(
     researchFreshness,
     readiness: diagnosticReadiness,
     evidenceRoadmap: diagnosticEvidenceRoadmapSnapshot,
-  });  const externalHistorySummary = summarizeExternalHashHistory(input.externalHashHistory);
+  });
+  const claimCertificate = createLocalClaimCertificate(input, plan, generatedAt);
+  return {
+    generatedAt,
+    plan,
+    tuningSweepPlan,
+    tuningAnalysis,
+    kernelBenchmark,
+    runtimeEfficiency,
+    operatingPolicy,
+    objectiveCertificate,
+    diagnosticCurrentStep,
+    algorithmTuningDirective,
+    batchOptimization,
+    experimentAdvisor,
+    objectiveActionPlan,
+    objectiveExperiment,
+    objectiveFeedback,
+    profileApplyGates,
+    runtimeRecommendation,
+    powerHashEnvelope,
+    runWindowPlan,
+    routeCertificate,
+    runEvidenceReview,
+    selectedLane,
+    primarySamplingTask,
+    offlineTimingProbe,
+    offlineTimingIdeaIds,
+    researchFreshness,
+    researchPromotionGate,
+    diagnosticEvidenceRoadmapSnapshot,
+    diagnosticReadiness,
+    objectiveAudit,
+    claimCertificate,
+  };
+}
+
+export function createMiningAlgorithmRuntimeSnapshot(
+  input: MiningAlgorithmDiagnosticInput,
+): MiningAlgorithmRuntimeSnapshot {
+  const runtime = buildRuntimeDiagnostic(input);
+  return {
+    schemaVersion: 1,
+    generatedAt: runtime.generatedAt,
+    routeCertificate: runtime.routeCertificate,
+    runtimeRecommendation: runtime.runtimeRecommendation,
+    objectiveExperiment: runtime.objectiveExperiment,
+    objectiveAudit: runtime.objectiveAudit,
+    objectiveCertificate: runtime.objectiveCertificate,
+    objectiveActionPlan: runtime.objectiveActionPlan,
+    claimCertificate: runtime.claimCertificate,
+  };
+}
+
+export function createMiningAlgorithmDiagnosticSnapshot(
+  input: MiningAlgorithmDiagnosticInput,
+): MiningAlgorithmDiagnosticSnapshot {
+  const {
+    generatedAt,
+    plan,
+    tuningAnalysis,
+    kernelBenchmark,
+    runtimeEfficiency,
+    operatingPolicy,
+    objectiveCertificate,
+    routeCertificate,
+    objectiveAudit,
+    objectiveActionPlan,
+    objectiveExperiment,
+    objectiveFeedback,
+    runtimeRecommendation,
+    powerHashEnvelope,
+    runWindowPlan,
+    runEvidenceReview,
+    profileApplyGates,
+    batchOptimization,
+    experimentAdvisor,
+    selectedLane,
+    primarySamplingTask,
+    offlineTimingProbe,
+    offlineTimingIdeaIds,
+    researchFreshness,
+    researchPromotionGate,
+    diagnosticEvidenceRoadmapSnapshot,
+    diagnosticReadiness,
+    claimCertificate,
+  } = buildRuntimeDiagnostic(input);
+  const externalHistorySummary = summarizeExternalHashHistory(input.externalHashHistory);
   const experimentConfidence = deriveAlgorithmExperimentConfidence({
     advisor: experimentAdvisor,
     tuningAnalysis,
@@ -716,17 +811,6 @@ export function createMiningAlgorithmDiagnosticSnapshot(
     { shareProofs: input.externalShareProofs ?? [] },
   );
   const externalValidationChecklist = deriveExternalHashEngineValidationChecklist(externalValidationInputs);
-  const claimCertificate = createHashClaimCertificate({
-    tuningObservations: input.tuningObservations,
-    tuningHistory: input.tuningHistory ?? input.tuningObservations,
-    externalHashHistory: [],
-    externalEffectiveHashrate: null,
-    preferredGoal: normalizeGoal(input.goal),
-    externalWorkAssignable: false,
-    externalMiningStartAllowed: false,
-    marginalDecision: plan.densityPlan.marginalDecision,
-    generatedAt,
-  });
   const hardwareClaimCertificate = createHashClaimCertificate({
     tuningObservations: input.tuningObservations,
     tuningHistory: input.tuningHistory ?? input.tuningObservations,

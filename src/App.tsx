@@ -63,6 +63,7 @@ import {
 import type { OptimizationOperatingGoal } from "./domain/optimizationEvidence";
 import {
   createMiningAlgorithmDiagnosticSnapshot,
+  createMiningAlgorithmRuntimeSnapshot,
   formatMiningAlgorithmDiagnosticSnapshot,
 } from "./domain/algorithmDiagnostics";
 import { formatError, formatUptime } from "./formatting";
@@ -1609,7 +1610,7 @@ function App() {
     });
   }, [currentTuningShareCounters, effectiveRuntimeProfileWindowBaseline.sampleSeconds, miningUptime, observedEfficiencyHashrate, runtimeProfileWindowKey]);
 
-  const runtimeAlgorithmDiagnostic = useMemo(() => createMiningAlgorithmDiagnosticSnapshot({
+  const runtimeAlgorithmDiagnostic = useMemo(() => createMiningAlgorithmRuntimeSnapshot({
     config,
     telemetry: null,
     tuningObservations: tuningEvidence,
@@ -1640,7 +1641,7 @@ function App() {
     benchmarkResult,
     config,
     effectiveCpuThreads,
-    effectiveGpuIntensityPercent,
+    currentGpuIntensityPercent,
     gpuDevices,
     observedEfficiencyHashrate,
     runtimeDiagnosticElapsedSeconds,

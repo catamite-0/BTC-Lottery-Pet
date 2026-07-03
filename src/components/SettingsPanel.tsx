@@ -26,11 +26,7 @@ import type { TuningApplyOption, TuningObservation, TuningShareCounters } from "
 import { calculateTuningWindowElapsedSeconds, evaluateTuningAutoSampleGate, hasTuningWindowCounterReset } from "../domain/tuningAutoSampler";
 import { summarizeExternalHashHistory } from "../domain/externalHashHistory";
 import {
-  compareExternalEfficiency,
   deriveExternalHashCapabilityMatrix,
-  deriveExternalHashEngineCandidateGate,
-  deriveExternalHashInterfaceSpec,
-  deriveExternalHashProtocolContract,
   deriveExternalHashSnapshot,
 } from "../domain/externalHashInterface";
 import { deriveMiningAlgorithmPlan } from "../domain/algorithmPlanner";
@@ -49,18 +45,9 @@ import { deriveAlgorithmRunWindowPlan } from "../domain/algorithmRunWindowPlan";
 import { deriveAlgorithmRunEvidenceReview } from "../domain/algorithmRunEvidenceReview";
 import { deriveAlgorithmProfileApplyGate } from "../domain/algorithmProfileApplyGate";
 import { createHashClaimCertificate } from "../domain/hashClaimCertificate";
-import {
-  assessHashHardwareOperatingEvidence,
-} from "../domain/hashHardwareOperatingEvidence";
-import type { HashHardwareOperatingEvidenceSample } from "../domain/hashHardwareOperatingEvidence";
-import { createHashHardwareReleaseEvidenceDossier, deriveHashHardwareReleaseGate } from "../domain/hashHardwareReleaseGate";
-import { deriveHashHardwareMeasurementProtocol } from "../domain/hashHardwareMeasurementProtocol";
 import { deriveHashRuntimeEfficiencySnapshot } from "../domain/hashRuntimeEfficiency";
 import { deriveHashOperatingPolicy } from "../domain/hashOperatingPolicy";
 import { deriveExternalHashWorkAdapterPlan } from "../engines/externalHashWorkAdapter";
-import { deriveExternalHashDryRunValidationInputs } from "../engines/externalHashDryRunValidation";
-import { resolveExternalHashEngineRegistry } from "../engines/externalHashEngineRegistry";
-import { deriveExternalHashEngineValidationChecklist } from "../engines/externalHashEngineValidation";
 
 interface SettingsPanelProps {
   draftConfig: AppConfig;
@@ -194,14 +181,6 @@ function objectiveGapLabel(value: string) {
   }
 }
 
-function compactOperationList(values: string[], limit = 3) {
-  if (values.length === 0) {
-    return "none";
-  }
-  const visible = values.slice(0, limit).map(shortStatus).join(" + ");
-  return values.length > limit ? `${visible} +${values.length - limit}` : visible;
-}
-
 function claimHashrateValueText(value: number | null | undefined, formatHashrate: (hashrate: number) => string) {
   return positiveMetric(value) ? formatHashrate(Number(value)) : "waiting";
 }
@@ -272,7 +251,6 @@ export default function SettingsPanel({
   const hardwareGpuAvailable = hasHardwareGpuDevice(gpuDevices);
   const softwareGpuAvailable = hasSoftwareGpuDevice(gpuDevices);
   const selectedPetProfile = getPetProfile(draftConfig.pet_profile_id);
-  const asicTelemetryResult = null;
   const externalHashHistorySummary = useMemo(() => summarizeExternalHashHistory([]), []);
   const [manualMeasuredWatts, setManualMeasuredWatts] = useState("");
   const currentShareCounters = useMemo<TuningShareCounters>(() => ({
@@ -322,9 +300,8 @@ export default function SettingsPanel({
   }, [draftEffectiveCpuThreads, isDraftGpuOnly, systemInfo.available_parallelism, systemInfo.recommended_cpu_threads]);
 
   const externalHashSnapshot = useMemo(() => (
-    deriveExternalHashSnapshot(draftConfig, asicTelemetryResult)
+    deriveExternalHashSnapshot(draftConfig, null)
   ), [
-    asicTelemetryResult,
     draftConfig.external_hash_direct_port,
     draftConfig.external_hash_direct_endpoint,
     draftConfig.external_hash_interface,
@@ -335,25 +312,9 @@ export default function SettingsPanel({
   const externalHashCapabilityMatrix = useMemo(() => (
     deriveExternalHashCapabilityMatrix(externalHashSnapshot)
   ), [externalHashSnapshot]);
-  const externalHashEngineCandidateGate = useMemo(() => (
-    deriveExternalHashEngineCandidateGate(externalHashSnapshot, externalHashCapabilityMatrix)
-  ), [externalHashCapabilityMatrix, externalHashSnapshot]);
-  const externalHashInterfaceSpec = useMemo(() => (
-    deriveExternalHashInterfaceSpec(externalHashSnapshot, externalHashCapabilityMatrix, externalHashEngineCandidateGate)
-  ), [externalHashCapabilityMatrix, externalHashEngineCandidateGate, externalHashSnapshot]);
-  const externalHashProtocolContract = useMemo(() => (
-    deriveExternalHashProtocolContract(externalHashInterfaceSpec, externalHashCapabilityMatrix)
-  ), [externalHashCapabilityMatrix, externalHashInterfaceSpec]);
   const externalHashWorkAdapterPlan = useMemo(() => (
     deriveExternalHashWorkAdapterPlan(externalHashSnapshot, externalHashCapabilityMatrix)
   ), [externalHashCapabilityMatrix, externalHashSnapshot]);
-  const externalHashEngineRegistry = useMemo(() => (
-    resolveExternalHashEngineRegistry(
-      externalHashSnapshot,
-      externalHashCapabilityMatrix,
-      externalHashEngineCandidateGate,
-    )
-  ), [externalHashCapabilityMatrix, externalHashEngineCandidateGate, externalHashSnapshot]);
   const tuningGoal = tuningGoalForPreset(draftConfig.performance_preset);
   const tuningSweepPlan = useMemo(() => createTuningSweepPlan({
     goal: tuningGoal,
@@ -461,23 +422,19 @@ export default function SettingsPanel({
     : null;
   const measuredWattsValue = Number(manualMeasuredWatts);
   const hasManualMeasuredWatts = Number.isFinite(measuredWattsValue) && measuredWattsValue > 0;
-  const externalHardwareOperatingEvidence = useMemo(() => (
-    assessHashHardwareOperatingEvidence([])
-  ), []);
   const algorithmPlan = useMemo(() => deriveMiningAlgorithmPlan({
     tuningAnalysis,
     externalHistory: externalHashHistorySummary,
     externalSnapshot: externalHashSnapshot,
     externalCapabilityMatrix: externalHashCapabilityMatrix,
     externalWorkAdapterPlan: externalHashWorkAdapterPlan,
-    externalOperatingEvidence: externalHardwareOperatingEvidence,
+    externalOperatingEvidence: null,
     externalAlgorithmMode: "local_only",
   }), [
     externalHashCapabilityMatrix,
     externalHashHistorySummary,
     externalHashSnapshot,
     externalHashWorkAdapterPlan,
-    externalHardwareOperatingEvidence,
     tuningAnalysis,
   ]);
   const hashOperatingPolicy = useMemo(() => (
@@ -560,38 +517,6 @@ export default function SettingsPanel({
   const objectiveProgressTitle = `${objectiveCertificate.summary} Goal ${objectiveCertificate.objectiveProgressScore}%. Low power ${objectiveCertificate.lowPowerProgressScore}%. High hash ${objectiveCertificate.highHashProgressScore}%. Gap ${objectiveGapText}. ${objectiveCertificate.nextStep}`;
   const objectiveExperimentTitle = `${objectiveExperiment.nextStep} Evidence: ${objectiveExperiment.evidenceChecklist.slice(0, 5).join(", ")}. Stop: ${objectiveExperiment.stopConditions.slice(0, 4).join(", ")}.`;
   const objectiveFeedbackTitle = `${objectiveFeedback.nextStep} Missing: ${objectiveFeedback.missingEvidence.slice(0, 4).join(", ") || "none"}.`;
-  const externalHashValidationInputs = useMemo(() => (
-    deriveExternalHashDryRunValidationInputs(externalHashSnapshot, externalHashCapabilityMatrix)
-  ), [externalHashCapabilityMatrix, externalHashSnapshot]);
-  const externalHashValidationChecklist = useMemo(() => (
-    deriveExternalHashEngineValidationChecklist(externalHashValidationInputs)
-  ), [externalHashValidationInputs]);
-  const hashHardwareReleaseGate = useMemo(() => deriveHashHardwareReleaseGate({
-    protocolContract: externalHashProtocolContract,
-    externalHistory: externalHashHistorySummary,
-    operatingEvidence: externalHardwareOperatingEvidence,
-    validationChecklist: externalHashValidationChecklist,
-    claimCertificate: hashClaimCertificate,
-  }), [
-    externalHardwareOperatingEvidence,
-    externalHashHistorySummary,
-    externalHashProtocolContract,
-    externalHashValidationChecklist,
-    hashClaimCertificate,
-  ]);
-  const externalProtocolAllowedText = compactOperationList(externalHashProtocolContract.allowedOperations);
-  const externalProtocolBlockedText = compactOperationList(
-    externalHashProtocolContract.blockedOperations.filter((operation) => (
-      operation === "control_jobs" || operation === "submit_shares" || operation === "start_mining"
-    )),
-  );
-  const externalProtocolTitle = `${externalHashProtocolContract.summary} Required before mining: ${compactOperationList(externalHashProtocolContract.requiredBeforeMining, 8)}.`;
-  const hashHardwareReleaseDossier = useMemo(() => (
-    createHashHardwareReleaseEvidenceDossier(hashHardwareReleaseGate)
-  ), [hashHardwareReleaseGate]);
-  const hashHardwareMeasurementProtocol = useMemo(() => (
-    deriveHashHardwareMeasurementProtocol(hashHardwareReleaseDossier)
-  ), [hashHardwareReleaseDossier]);
   const objectiveLocalCapturePolicy = objectiveExperiment.capturePolicy.mode === "local_sample" && objectiveExperiment.capturePolicy.enabled
     ? objectiveExperiment.capturePolicy
     : null;
@@ -740,6 +665,10 @@ export default function SettingsPanel({
   const powerHashEnvelopeTitle = `${powerHashEnvelope.nextStep} Budget ${formatWatts(powerHashEnvelope.averagePowerBudgetWatts)}; projected ${powerHashEnvelope.projectedAverageHashrate ? formatHashrate(powerHashEnvelope.projectedAverageHashrate) : "waiting"} at ${formatWatts(powerHashEnvelope.projectedAverageWatts)}. Guardrails: ${powerHashEnvelope.guardrails.slice(0, 3).join(" ") || "none"}.`;
   const routeCertificateTitle = `${routeCertificate.summary} ${routeCertificate.nextStep} Missing: ${routeCertificate.missingEvidenceIds.slice(0, 5).join(", ") || "none"}. Guardrails: ${routeCertificate.guardrails.slice(0, 4).join(" ")}.`;
   const routeClaimText = routeCertificate.fullObjectiveClaimAllowed ? "full" : routeCertificate.runtimeProfileClaimAllowed ? "runtime" : "no";
+  const localRouteSummary = `${shortStatus(algorithmPlan.strategy)} / ${shortStatus(routeCertificate.productionMode)}`;
+  const localRuntimeSummary = `${shortStatus(runtimeRecommendation.mode)} / ${runtimeRecoveryText}`;
+  const localTuningSummary = activeTuningStep ? activeTuningStep.summary : "Waiting for local run";
+  const localRouteTitle = `${routeCertificate.summary} ${runtimeRecommendation.summary} ${algorithmTuningDirective.nextStep}`;
   const powerHashEnvelopeDutyText = powerHashEnvelope.burstDutyPercent === null ? "waiting" : `${powerHashEnvelope.burstDutyPercent}% burst`;
   const powerHashEnvelopeHashText = powerHashEnvelope.projectedAverageHashrate ? formatHashrate(powerHashEnvelope.projectedAverageHashrate) : "waiting";
   const powerHashEnvelopeWattsText = formatWatts(powerHashEnvelope.projectedAverageWatts);
@@ -791,10 +720,6 @@ export default function SettingsPanel({
     }
     applyTuningStep(hashBatchOptimization.targetStep);
   };
-  const externalEfficiencyComparison = compareExternalEfficiency(
-    externalHashSnapshot,
-    algorithmPlan.densityPlan.selectedLane.joulesPerTerahash,
-  );
   const hardwareSummary = hardwareReady
     ? hardwareGpuAvailable
       ? "hardware GPU ready"
@@ -1046,37 +971,41 @@ export default function SettingsPanel({
           </label>
         </div>
 
-        <div className="external-hash-summary settings-section-card">
-          <span>{externalHashSnapshot.label}</span>
-          <b>{externalHashSnapshot.summary}</b>
-          <small>{externalHashSnapshot.integrationStage}</small>
-          <small className={`external-interface-spec spec-${externalHashInterfaceSpec.stage}`} title={externalHashInterfaceSpec.nextStep}>
-            SPEC {externalHashInterfaceSpec.physicalLayer} / {shortStatus(externalHashInterfaceSpec.stage)}
-          </small>
-          <small className={`external-protocol-contract contract-${externalHashProtocolContract.stage}`} title={externalProtocolTitle}>
-            CONTRACT {shortStatus(externalHashProtocolContract.stage)} / ALLOWED {externalProtocolAllowedText}
-          </small>
-          <small className={`external-release-gate release-${hashHardwareReleaseGate.status}`} title={hashHardwareReleaseGate.nextStep}>
-            RELEASE {shortStatus(hashHardwareReleaseGate.status)} / {hashHardwareReleaseGate.readinessScore}%
-          </small>
-          <small className={`external-measurement-step measure-${hashHardwareMeasurementProtocol.primaryStep.status}`} title={`${hashHardwareMeasurementProtocol.primaryStep.objective} ${hashHardwareMeasurementProtocol.primaryStep.successCriteria} ${hashHardwareMeasurementProtocol.primaryStep.nextStep}`}>
-            MEASURE {shortStatus(hashHardwareMeasurementProtocol.primaryStep.id)} / {shortStatus(hashHardwareMeasurementProtocol.primaryStep.status)}
-          </small>
-          <em>{externalHashInterfaceSpec.summary}</em>
-          <em>{externalHashProtocolContract.summary} Blocked: {externalProtocolBlockedText}.</em>
-          <em>{hashHardwareReleaseGate.summary}</em>
-          <em>{hashHardwareMeasurementProtocol.summary}</em>
-          <em>{externalHashCapabilityMatrix.summary}</em>
-          <em>{externalHashWorkAdapterPlan.summary}</em>
-          <em>{externalHashEngineRegistry.summary}</em>
-          <em>{externalHashHistorySummary.summary}</em>
-          <em>{externalEfficiencyComparison.summary}</em>
-        </div>
-
         <div id="settings-algorithm" className="settings-section-marker">
           <p className="eyebrow">LOCAL ALGORITHM</p>
           <strong>Local-only tuning and evidence</strong>
         </div>
+
+        <div className="local-runtime-focus settings-section-card" aria-label="Local runtime focus" title={localRouteTitle}>
+          <div className="local-runtime-heading">
+            <span>Local Route</span>
+            <b>CPU/GPU tuning is active</b>
+            <em>{algorithmPlan.localSummary}</em>
+          </div>
+          <div className="local-runtime-chips" aria-label="Local route status">
+            <small className={`local-runtime-chip route-${routeCertificate.status}`}>
+              <span>Route</span>
+              <b>{localRouteSummary}</b>
+            </small>
+            <small className={`local-runtime-chip runtime-${runtimeRecommendation.mode}`}>
+              <span>Runtime</span>
+              <b>{localRuntimeSummary}</b>
+            </small>
+            <small className={`local-runtime-chip tuning-${algorithmTuningDirective.kind}`}>
+              <span>Tune</span>
+              <b>{localTuningSummary}</b>
+            </small>
+          </div>
+        </div>
+
+        <div className="external-hash-summary settings-section-card sealed">
+          <span>External Hash</span>
+          <b>Archived for now</b>
+          <small>compatibility only</small>
+          <em>Local CPU/GPU profiles are the only active mining route in this build.</em>
+          <em>Stored external settings remain for migration, but jobs and share submission stay sealed.</em>
+        </div>
+
         <div className={`algorithm-plan-card settings-section-card strategy-${algorithmPlan.strategy}`} aria-label="Mining algorithm plan">
           <span>{shortStatus(algorithmPlan.strategy)} / {algorithmPlan.recommendedRoute} / {algorithmPlan.confidence}</span>
           <b>{algorithmPlan.summary}</b>

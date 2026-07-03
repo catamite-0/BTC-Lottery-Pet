@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   createMiningAlgorithmDiagnosticSnapshot,
+  createMiningAlgorithmRuntimeSnapshot,
   formatMiningAlgorithmDiagnosticSnapshot,
 } from "../.test-dist/domain/algorithmDiagnostics.js";
 import { createTuningSweepPlan } from "../.test-dist/domain/efficiencyTuning.js";
@@ -515,4 +516,29 @@ test("mining algorithm diagnostics includes live batch optimization evidence", (
   assert.ok(Number(snapshot.batchOptimization.targetGpuIntensityPercent) > 25);
   assert.equal(formatted.includes('"batchOptimization"'), true);
   assert.equal(formatted.includes('"gpuDispatchMs"'), false);
+});
+
+test("mining algorithm runtime snapshot omits export-only hardware release diagnostics", () => {
+  const snapshot = createMiningAlgorithmRuntimeSnapshot(baseInput({
+    observedHashrate: 180_000_000,
+    observedSampleSeconds: 600,
+    observedComputeMode: "gpu",
+    observedCpuThreads: 0,
+    observedGpuIntensityPercent: 25,
+    currentComputeMode: "gpu",
+    currentCpuThreads: 0,
+    currentGpuIntensityPercent: 25,
+    acceptedShares: 4,
+  }));
+
+  assert.equal(snapshot.schemaVersion, 1);
+  assert.equal(snapshot.routeCertificate.externalMiningAllowed, false);
+  assert.equal(snapshot.runtimeRecommendation.externalMiningAllowed, false);
+  assert.ok(snapshot.objectiveExperiment.capturePolicy);
+  assert.ok(snapshot.objectiveAudit.currentAlgorithm);
+  assert.ok(snapshot.claimCertificate.lowestPower);
+  assert.equal(Object.hasOwn(snapshot, "hardwareReleaseGate"), false);
+  assert.equal(Object.hasOwn(snapshot, "hardwareReleaseDossier"), false);
+  assert.equal(Object.hasOwn(snapshot, "hardwareMeasurementProtocol"), false);
+  assert.equal(Object.hasOwn(snapshot, "hardwareOperatingEvidence"), false);
 });

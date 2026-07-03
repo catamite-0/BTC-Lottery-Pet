@@ -488,9 +488,8 @@ impl SharedMiningState {
             return;
         }
 
-        valid_previous_jobs.retain(|job| {
-            job.generation != previous.generation || job.job_id != previous.job_id
-        });
+        valid_previous_jobs
+            .retain(|job| job.generation != previous.generation || job.job_id != previous.job_id);
         valid_previous_jobs.push(ValidPreviousJob::from_job(
             previous,
             now + PREVIOUS_JOB_SHARE_GRACE,
@@ -1475,7 +1474,9 @@ fn share_matches_valid_previous_job(shared: &SharedMiningState, share: &ShareSub
         .lock()
         .unwrap_or_else(|error| error.into_inner());
     valid_previous_jobs.retain(|job| job.expires_at > now);
-    valid_previous_jobs.iter().any(|job| job.matches_share(share))
+    valid_previous_jobs
+        .iter()
+        .any(|job| job.matches_share(share))
 }
 
 fn should_submit_share(shared: &SharedMiningState, share: &ShareSubmission) -> bool {

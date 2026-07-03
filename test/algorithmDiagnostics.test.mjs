@@ -518,6 +518,16 @@ test("mining algorithm diagnostics includes live batch optimization evidence", (
   assert.equal(formatted.includes('"gpuDispatchMs"'), false);
 });
 
+test("mining algorithm runtime snapshot uses backend kernel benchmark for default route", () => {
+  const snapshot = createMiningAlgorithmRuntimeSnapshot(baseInput({
+    algorithmKernelBenchmark: kernelBenchmarkOk(),
+  }));
+
+  assert.equal(snapshot.routeCertificate.defaultAlgorithm, "double_sha256_midstate");
+  assert.equal(snapshot.routeCertificate.localKernelMode, "midstate_reuse");
+  assert.equal(snapshot.objectiveAudit.currentAlgorithm, "double_sha256_midstate");
+});
+
 test("mining algorithm runtime snapshot omits export-only hardware release diagnostics", () => {
   const snapshot = createMiningAlgorithmRuntimeSnapshot(baseInput({
     observedHashrate: 180_000_000,

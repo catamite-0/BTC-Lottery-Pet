@@ -561,12 +561,17 @@ async fn diagnose_pool_connection(
         .map_err(|_| "pool diagnostic task panicked".to_string())
 }
 
-
 #[tauri::command]
 async fn get_diagnostic_snapshot(app: AppHandle) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || build_diagnostic_snapshot(&app))
         .await
         .map_err(|_| "diagnostic snapshot task panicked".to_string())?
+}
+#[tauri::command]
+async fn get_algorithm_kernel_benchmark() -> Result<AlgorithmKernelBenchmark, String> {
+    tauri::async_runtime::spawn_blocking(diagnostic_algorithm_kernel_benchmark)
+        .await
+        .map_err(|_| "algorithm kernel benchmark task panicked".to_string())
 }
 
 #[tauri::command]
@@ -934,6 +939,7 @@ pub fn run() {
             run_gpu_benchmark,
             diagnose_pool_connection,
             get_diagnostic_snapshot,
+            get_algorithm_kernel_benchmark,
             save_diagnostic_snapshot,
             start_real_mining,
             stop_real_mining,
@@ -995,7 +1001,10 @@ mod tests {
 
         let normalized = config.normalized();
 
-        assert_eq!(normalized.external_hash_interface, ExternalHashInterface::None);
+        assert_eq!(
+            normalized.external_hash_interface,
+            ExternalHashInterface::None
+        );
         assert_eq!(normalized.external_hash_direct_port, "");
         assert!(!normalized.external_hash_polling_enabled);
     }

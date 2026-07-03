@@ -35,10 +35,9 @@ import type { MiningEvent } from "./domain/miningEvents";
 import {
   derivePetState,
   isAnimatedMiningState,
-  petStateLabel,
   petStatusFromState,
 } from "./domain/petState";
-import type { MiningEngineKind, MiningEngineLifecycle } from "./engines/miningEngine";
+import type { MiningEngineKind } from "./engines/miningEngine";
 import {
   calculateProbabilitySnapshot,
   formatProbabilityTime,
@@ -69,7 +68,9 @@ import {
 import { formatError, formatUptime } from "./formatting";
 import { useBlockHeight } from "./hooks/useBlockHeight";
 import { useDiagnosticsActions } from "./hooks/useDiagnosticsActions";
-import { useMiningEngineController } from "./hooks/useMiningEngineController";
+import { useAlgorithmDiagnosticsBridge } from "./hooks/useAlgorithmDiagnosticsBridge";
+import { useMiningController } from "./hooks/useMiningController";
+import { useStartupRuntime } from "./hooks/useStartupRuntime";
 import { useHeartbeatNotifications } from "./hooks/useHeartbeatNotifications";
 import { useSimulationMiningSession } from "./hooks/useSimulationMiningSession";
 import { notificationSettingsFromConfig } from "./notificationSettings";
@@ -166,7 +167,6 @@ const idleRealStats: RealMiningStats = {
 const runningInTauri = isTauri();
 const MIN_EFFICIENCY_OBSERVATION_SECONDS = 20;
 const AUTO_TUNING_SAMPLE_WINDOW_SECONDS = 60;
-
 function readTuningEvidenceFromStorage() {
   if (typeof window === "undefined") {
     return [];
@@ -574,6 +574,29 @@ function App() {
     const entry = createDevLogEntry(source, message);
     setDevLogs((current) => [entry, ...current].slice(0, 80));
   }, []);
+  const {
+    backendDiagnosticBridge,
+    loadBackendDiagnosticBridge,
+    setBackendDiagnosticBridge,
+  } = useAlgorithmDiagnosticsBridge({ runningInTauri, appendDevLog });
+
+  useStartupRuntime({
+    runningInTauri,
+    fallbackConfig,
+    fallbackSystemInfo,
+    fallbackGpuDevices,
+    appendDevLog,
+    appendPetLog,
+    loadBackendDiagnosticBridge,
+    setBackendDiagnosticBridge,
+    setConfig,
+    setDraftConfig,
+    setErrorMessage,
+    setGpuDevices,
+    setHardwareReady,
+    setSystemInfo,
+  });
+
   const captureTuningObservation = useCallback((observation: TuningObservation) => {
     const capturedAt = new Date().toISOString();
     const capturedObservation: TuningObservation = {
@@ -632,74 +655,6 @@ function App() {
     return () => window.clearInterval(timer);
   }, [isMining]);
 
-  // Browser preview uses conservative fallbacks; Tauri supplies the local values.
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadStartupState = async () => {
-      const loadConfig = async () => {
-        try {
-          return await invoke<AppConfig>("get_config");
-        } catch (error) {
-          if (runningInTauri && !cancelled) {
-            setErrorMessage(`Could not load settings: ${formatError(error)}`);
-          }
-          return fallbackConfig;
-        }
-      };
-
-      const loadSystemInfo = async () => {
-        try {
-          return await invoke<SystemInfo>("get_system_info");
-        } catch {
-          return fallbackSystemInfo;
-        }
-      };
-
-      const loadGpuDevices = async () => {
-        try {
-          return await invoke<GpuDevice[]>("get_gpu_devices");
-        } catch (error) {
-          appendDevLog("system", `GPU detection failed: ${formatError(error)}`);
-          return fallbackGpuDevices;
-        }
-      };
-
-      const [loadedConfig, detectedSystemInfo, detectedGpuDevices] = await Promise.all([
-        loadConfig(),
-        loadSystemInfo(),
-        loadGpuDevices(),
-      ]);
-      if (cancelled) {
-        return;
-      }
-
-      const gpuDiagnostics = detectedGpuDevices
-        .map((device) => device.diagnostic)
-        .filter((diagnostic): diagnostic is string => Boolean(diagnostic));
-      if (gpuDiagnostics.length > 0) {
-        appendDevLog("system", `GPU detection diagnostic: ${gpuDiagnostics.join(" ")}`);
-      }
-
-      const adaptation = adaptConfigForHardware(loadedConfig, detectedSystemInfo, detectedGpuDevices);
-      if (adaptation.changed && adaptation.messages.length > 0) {
-        appendDevLog("system", `Hardware adaptation: ${adaptation.messages.join(" ")}`);
-        appendPetLog("Adjusted settings for this device.");
-      }
-
-      setSystemInfo(detectedSystemInfo);
-      setGpuDevices(detectedGpuDevices);
-      setConfig(adaptation.config);
-      setDraftConfig(adaptation.config);
-      setHardwareReady(true);
-    };
-
-    void loadStartupState();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [appendDevLog, appendPetLog]);
 
   useEffect(() => {
     if (!selectedMiningMode) {
@@ -1342,27 +1297,18 @@ function App() {
   const petStatus: PetStatus = petStatusFromState(petState, petStateContext);
   const activePetProfile = getPetProfile(config.pet_profile_id);
 
-  const engineLifecycle: MiningEngineLifecycle = {
+  const { miningEngine, miningEngineStatus } = useMiningController({
+    realModeEnabled,
+    selectedMiningMode,
+    computeMode: config.compute_mode,
+    petState,
+    isMining,
     prepareStart: prepareMiningStart,
     startSimulation: startSimulationSession,
     startReal: startRealMiningSession,
     stopSimulation: stopSimulationSession,
     stopReal: stopRealMiningSession,
-    status: (kind: MiningEngineKind) => ({
-      kind,
-      petState,
-      running: isMining,
-      label: petStateLabel(petState),
-    }),
-  };
-  const miningEngine = useMiningEngineController({
-    realModeEnabled,
-    selectedMiningMode,
-    computeMode: config.compute_mode,
-    lifecycle: engineLifecycle,
   });
-  const miningEngineStatus = miningEngine.status();
-
   useEffect(() => {
     if (!attentionEvent) {
       return;
@@ -1617,6 +1563,7 @@ function App() {
     tuningHistory: tuningReplicationHistory,
     externalHashHistory: [],
     externalOperatingEvidenceSamples: [],
+    algorithmKernelBenchmark: backendDiagnosticBridge.algorithmKernelBenchmark,
     goal: optimizationGoalForPreset(config.performance_preset),
     availableCpuThreads: systemInfo.available_parallelism,
     recommendedCpuThreads: systemInfo.recommended_cpu_threads,
@@ -1639,6 +1586,7 @@ function App() {
     currentGpuIntensityPercent,
   }), [
     benchmarkResult,
+    backendDiagnosticBridge,
     config,
     effectiveCpuThreads,
     currentGpuIntensityPercent,

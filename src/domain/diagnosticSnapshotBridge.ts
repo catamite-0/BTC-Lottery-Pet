@@ -4,6 +4,10 @@ export interface BackendDiagnosticSnapshotBridge {
   algorithmKernelBenchmark: HashKernelBenchmarkLike | null;
 }
 
+export const emptyBackendDiagnosticBridge: BackendDiagnosticSnapshotBridge = {
+  algorithmKernelBenchmark: null,
+};
+
 function recordValue(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -18,7 +22,7 @@ function kernelBenchmarkValue(value: unknown): HashKernelBenchmarkLike | null {
 export function extractBackendDiagnosticBridge(snapshot: unknown): BackendDiagnosticSnapshotBridge {
   const record = recordValue(snapshot);
   if (!record) {
-    return { algorithmKernelBenchmark: null };
+    return emptyBackendDiagnosticBridge;
   }
 
   return {
@@ -30,11 +34,19 @@ export function extractBackendDiagnosticBridge(snapshot: unknown): BackendDiagno
 
 export function parseBackendDiagnosticBridge(snapshotText: string | null | undefined): BackendDiagnosticSnapshotBridge {
   if (!snapshotText) {
-    return { algorithmKernelBenchmark: null };
+    return emptyBackendDiagnosticBridge;
   }
   try {
     return extractBackendDiagnosticBridge(JSON.parse(snapshotText));
   } catch {
-    return { algorithmKernelBenchmark: null };
+    return emptyBackendDiagnosticBridge;
   }
+}
+
+export function backendDiagnosticBridgeFromKernelBenchmark(
+  algorithmKernelBenchmark: HashKernelBenchmarkLike | null | undefined,
+): BackendDiagnosticSnapshotBridge {
+  return {
+    algorithmKernelBenchmark: algorithmKernelBenchmark ?? null,
+  };
 }

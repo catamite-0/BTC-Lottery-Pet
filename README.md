@@ -1,53 +1,46 @@
 # BTC Lottery Pet
 
 BTC Lottery Pet is a small Windows desktop ornament inspired by BTC lottery
-miners and NerdMiner-style displays. It is built with Tauri, React, TypeScript,
-and Rust.
+miners and NerdMiner-style displays. It is built with Tauri, React,
+TypeScript, and Rust.
 
-The default mode is a local-only simulation. An experimental real mining mode
-is available for education and lottery-style solo mining, but it is always off
-by default and must be enabled manually in the UI for the current app session.
-This project does not promise or guarantee any financial return.
+The app now has a deliberately narrow runtime: explicitly confirmed local CPU
+mining only. This project does not promise or guarantee any financial return.
 
 ## Features
 
-- 420x560 resizable desktop pet window with a 360x360 minimum size
-- Toggleable **Compact Mode** (default scaled-up desktop pet ornament with a mini stats line) and **Detail Mode** (complete metrics grid and log ticker)
-- Always-on-top window with a user-controlled `PIN` / `FREE` toggle
-- System tray icon with `Show`, `Hide`, `Open Logs`, and `Quit`
-- Default simulation mode with locally generated stats
-- Explicitly enabled real mining mode with a CPU/GPU-use warning
-- User-controlled BTC address, pool host, pool port, worker name, and CPU thread
-  selector
-- Real GPU mining modes using `wgpu` first and OpenCL fallback when available
-- GPU-only and CPU+GPU compute modes with backend/device diagnostics
-- Real GPU benchmark for local hardware smoke testing
-- Pool connection diagnostic for DNS, TCP, subscribe, authorize, and job checks
-- Single-instance protection per app identifier: launching another copy focuses
-  the existing window
-- Rust Stratum v1 client and cancellable SHA-256d hash loop
-- `Stop` control that signals the hash workers to exit immediately
+- 420x560 resizable desktop pet window with a 360x360 minimum size.
+- Toggleable Widget and Dashboard views.
+- Always-on-top window with a user-controlled `PIN` / `FREE` toggle.
+- System tray icon with `Show`, `Hide`, `Open Logs`, and `Quit`.
+- CPU-only mining workflow with a warning for high CPU settings.
+- User-controlled BTC address, pool host, pool port, worker name, pool
+  password hint, and CPU thread selector.
+- Pool connection diagnostic for DNS, TCP, subscribe, authorize, and job
+  checks.
+- Single-instance protection per app identifier.
+- Rust Stratum v1 client and cancellable SHA-256d CPU hash loop.
+- `Stop` control that signals hash workers to exit immediately.
 - Jackpot / block-candidate detection when a header hash meets the network
-  target from the current Stratum job's `nbits`
-- App log directory file logging with a 1 MiB rotation limit (`mining.log` and
-  `mining.log.1`) plus timestamped `found_block_*.json` files for block candidate events
-- Optional one-way notifications for Jackpot, share accepted, connection error,
-  and coarse heartbeat status via local Windows notification or webhook
-- Detail Mode diagnostic snapshot copy/save with schema version, app version,
-  sanitized config, GPU list, log path, recent log lines, and the latest
-  connection error
+  target from the current Stratum job's `nbits`.
+- App log directory file logging with a 1 MiB rotation limit plus timestamped
+  `found_block_*.json` files for block candidate events.
+- Optional one-way notifications for jackpot, share accepted, connection
+  error, and coarse heartbeat status.
+- Dashboard diagnostic snapshot copy/save with schema version, app version,
+  sanitized config, log path, recent log lines, and latest connection error.
 
 BTC Lottery Pet does not hide its process, enable itself at Windows startup,
 accept remote-control commands, or start mining automatically.
 
 It never requests or stores a BTC private key or seed phrase.
 
-## Real mining warning
+## CPU Mining Warning
 
-Real mining mode uses CPU time, electricity, and network bandwidth. CPU mining
-is not competitive with Bitcoin ASIC hardware and is extraordinarily unlikely
-to find a block. Treat the feature as an educational experiment and desktop
-lottery display, not an income source.
+CPU mining uses CPU time, electricity, and network bandwidth. Desktop CPU
+mining is not competitive with specialized Bitcoin mining hardware and is
+extraordinarily unlikely to find a block. Treat the feature as an educational
+experiment and desktop lottery display, not an income source.
 
 The Stratum v1 TCP presets are not encrypted. Your public BTC address, worker
 name, pool traffic, and IP address are visible to the selected pool and may be
@@ -62,7 +55,7 @@ Solo pool availability, difficulty policies, payout behavior, and
 compatibility can change outside this project. Verify the selected pool's
 current documentation before mining.
 
-## Supported pool presets
+## Supported Pool Presets
 
 The settings panel includes:
 
@@ -70,11 +63,11 @@ The settings panel includes:
 | --- | ---: | --- |
 | `public-pool.io` | `3333` | Default. Shared Public Pool low-difficulty endpoint listed by the NerdMiner project. |
 | `pool.nerdminer.io` | `3333` | NerdMiner community pool endpoint. This client can use it as a plain Stratum v1 fallback after you review its current terms and status. |
-| `pool.nerdminers.org` | `3333` | Official NerdMiner community pool. Its operator documents hardware restrictions, so verify compatibility before using this desktop client. |
+| `pool.nerdminers.org` | `3333` | Official NerdMiner community pool. Verify compatibility before using this desktop client. |
 
 The presets are convenience defaults, not availability guarantees. The pool
-host field remains editable so you can use another trusted Stratum v1 solo
-pool after reviewing its documentation.
+host field remains editable so you can use another trusted Stratum v1 solo pool
+after reviewing its documentation.
 
 The settings panel `TEST POOL` action checks the configured pool in stages:
 local config, DNS lookup, TCP connection, `mining.subscribe`,
@@ -92,7 +85,7 @@ The Stratum password defaults to `x`. Some pools also accept a password hint
 such as `d=1` or `diff=1` to request a lower share difficulty; use the Pool
 Password / Hint setting when the pool documents one.
 
-## Technical scope
+## Technical Scope
 
 The Rust backend owns all real mining work:
 
@@ -102,20 +95,42 @@ The Rust backend owns all real mining work:
    `mining.notify`.
 4. Build the coinbase transaction, Merkle root, and Bitcoin block-header
    candidate.
-5. Run SHA-256d nonce loops using no more than the configured CPU thread count
-   plus one GPU worker when GPU mining is explicitly enabled.
+5. Run SHA-256d nonce loops using no more than the configured CPU thread count.
 6. Send qualifying shares with `mining.submit`.
-7. Emit only UI statistics: hashrate, accepted shares, rejected shares, best
-   difficulty, current job ID, connection status, and GPU runtime diagnostics.
-   Mining stats are emitted at most once per second during real mining, except
-   for the immediate local `Stopped` state emitted after the user clicks `STOP`.
+7. Emit UI statistics at most once per second during real mining: hashrate,
+   accepted shares, rejected shares, best difficulty, current job ID, and
+   connection status.
 8. Compare each candidate header hash against the network target derived from
-   `nbits`; if it meets that target, emit a local `block-found` event, write
-   a timestamped `found_block_*.json` record, and keep the normal share-submission path active.
+   `nbits`; if it meets that target, emit a local `block-found` event, write a
+   timestamped `found_block_*.json` record, and keep the normal share
+   submission path active.
 
 The current client is intentionally small. It supports plain Stratum v1 TCP,
 not Stratum TLS, Stratum v2, proxy mode, failover pools, remote management, or
 profit-switching.
+
+The Rust code is split by responsibility:
+
+- `btc-hash-core` defines shared hash work types and the hash engine trait.
+- `btc-hash-cpu` owns CPU SHA-256d, midstate reuse, target comparison, and the
+  fixed-window benchmark.
+- `btc-mining-core` owns Stratum protocol parsing, job/share state, and mining
+  telemetry.
+- `src-tauri/src/mining_runtime` owns Tauri-facing session orchestration,
+  workers, pool connections, logs, and local block-candidate side effects.
+- `src-tauri/src/app_adapter` owns Tauri config, diagnostics, settings, and
+  notifications.
+
+The frontend is split so UI work can stay in its own lane:
+
+- `src/app/shell` owns the desktop shell and top-level UI composition.
+- `src/features` owns dashboard, settings, pet, mining prompt, and jackpot
+  presentation.
+- `src/contracts`, `src/platform/tauri`, `src/hooks`, and `src/app` own
+  cross-layer state and Tauri command integration.
+
+The UI does not choose the hash algorithm. The backend selects the CPU kernel
+and exposes benchmark evidence through diagnostics.
 
 The block-candidate record contains job ID, nonce, ntime, extranonce2, block
 hash, best difficulty estimate, timestamp, and pool host/port. It intentionally
@@ -140,22 +155,11 @@ Notifications are one-way only. Local Windows notifications and webhooks can be
 triggered by app events, but there is no remote command polling, remote control,
 or inbound webhook listener.
 
-The Detail Mode `COPY DIAG` action copies a local diagnostic snapshot to the
+The Dashboard `COPY DIAG` action copies a local diagnostic snapshot to the
 clipboard, and `SAVE DIAG` writes the backend diagnostic JSON to the app log
 folder. It is meant for troubleshooting and intentionally excludes the BTC
-address, pool password, webhook URL, legacy external hash fields, and Stratum
-message payloads from the frontend optimization evidence section. Recent log
-lines are redacted against the current BTC address, pool password, and webhook
-URL before export. The backend snapshot includes a diagnostic schema version,
-app version, single app identifier, configuration summary, GPU device list, log
-path, recent mining log lines, latest connection error when one is present, and
-the names of fields that were redacted. The copied frontend evidence section
-adds local tuning sample counts, measured-power/share evidence status, external
-efficiency trend, qualified/provisional operating candidates for lowest power,
-max efficiency, balanced, and max hashrate goals, and the next missing
-optimization evidence gate. Candidates become qualified only after measured
-watts, at least three share events, low share waste, a stable 15 minute runtime
-window, and safe thermal state are present.
+address, pool password, and webhook URL. Recent log lines are redacted against
+the current BTC address, pool password, and webhook URL before export.
 
 The settings panel pool diagnostic is an active connection check. It does not
 mine or submit shares, but it may send the configured public BTC address and
@@ -170,10 +174,10 @@ The repository-level [`config.json`](./config.json) contains defaults:
   "btc_address": "",
   "pool_host": "public-pool.io",
   "pool_port": 3333,
+  "pool_password": "x",
   "worker_name": "btc-lottery-pet",
   "cpu_threads": 1,
   "performance_preset": "eco",
-  "real_mining_enabled": false,
   "enable_notifications": true,
   "notify_on_jackpot": true,
   "notify_on_share_accepted": false,
@@ -181,41 +185,28 @@ The repository-level [`config.json`](./config.json) contains defaults:
   "heartbeat_interval": "off",
   "notification_channel": "local_windows_toast",
   "webhook_url": "",
-  "compute_mode": "cpu",
-  "gpu_enabled": false,
-  "gpu_device_id": null,
-  "gpu_intensity_percent": 10
+  "pet_profile_id": "classic-slot"
 }
 ```
 
 On first launch, the Rust backend copies these values to the app-specific
-configuration directory. Existing Phase 1 config files are normalized when
-loaded. `performance_preset` and `cpu_threads` are the enforced real-mining CPU
-limits. The default `eco` preset uses one CPU thread.
+configuration directory. Existing config files are normalized when loaded.
+`performance_preset` and `cpu_threads` are the enforced real-mining CPU limits.
+The default `eco` preset uses one CPU thread.
 
 Upgrades preserve existing custom pool selections, but migrate the old `21496`
-preset port to `3333` for known preset hosts. If a pool rejects the client
-after connecting, review the settings panel and switch pools manually when
+preset port to `3333` for known preset hosts. If a pool rejects the client after
+connecting, review the settings panel and switch pools manually when
 appropriate.
 
-For safety, `real_mining_enabled` remains `false` in saved configuration.
-Enabling real mode is a session-only UI action. Every app launch starts in
-simulation mode, and mining begins only after the user clicks `START`.
+CPU mining is the only run mode. Mining still begins only after the user clicks
+`START`, and high CPU presets require the explicit warning confirmation.
 
-GPU settings also start conservatively. The default `compute_mode` is `cpu`,
-the internal `gpu_enabled` flag is `false`, and `gpu_intensity_percent`
-defaults to `10`. The UI presents that field as `GPU Limit` because it is a
-soft duty-cycle limiter, not an operating-system-enforced power cap. Current
-compute mode values are `cpu`, `gpu`, and `hybrid`. Legacy or unknown GPU modes
-are normalized back to a safe startup configuration.
-
-## Performance presets
+## Performance Presets
 
 The settings panel asks the Rust backend for the computer's available logical
 CPU thread count and presents safe choices from `1`, `2`, `4`, and the detected
-maximum without exceeding that maximum. `Compute Mode` is the source of truth:
-`CPU Only` and `CPU + GPU` show CPU preset controls, while `GPU Only` shows a
-read-only `0` CPU worker summary instead of editable CPU controls.
+maximum without exceeding that maximum.
 
 | Preset | Real CPU mining threads |
 | --- | ---: |
@@ -224,13 +215,8 @@ read-only `0` CPU worker summary instead of editable CPU controls.
 | `Turbo` | Detected logical CPU thread count |
 | `Custom` | User-selected `CPU THREADS` value |
 
-In `GPU Only` mode the UI starts real mining with `0` CPU hash threads and one
-GPU worker. In `CPU + GPU` mode the selected preset controls the CPU workers and
-the GPU worker runs alongside them; Hybrid is not silently downgraded to GPU
-only.
-
-Starting real CPU mining with `Turbo` or a custom thread count above the
-backend recommendation displays:
+Starting real CPU mining with `Turbo` or a custom thread count above the backend
+recommendation displays:
 
 ```text
 High CPU usage may heat your computer. Continue?
@@ -241,30 +227,16 @@ and validation, so an out-of-range thread count cannot bypass the local limit.
 
 ## Notifications
 
-Notification settings are local configuration. `Notify on Jackpot` and
-`Notify on Connection Error` default to enabled, `Notify on Share Accepted`
-defaults to disabled, and heartbeat defaults to `off`.
+Notification settings are local configuration. `Notify on Jackpot` and `Notify
+on Connection Error` default to enabled, `Notify on Share Accepted` defaults to
+disabled, and heartbeat defaults to `off`.
 
 Supported channels today:
 
 | Channel | Current behavior |
 | --- | --- |
 | `Local Windows Toast` | Shows a local Windows notification-style balloon. Jackpot and connection warnings also play a short system sound. |
-| `Webhook` | Sends one-way JSON POST notifications for Jackpot and heartbeat events. |
-
-The Jackpot webhook body is intentionally narrow:
-
-```json
-{
-  "event": "jackpot",
-  "pool": "...",
-  "job_id": "...",
-  "hash": "...",
-  "difficulty": 0,
-  "timestamp": "...",
-  "note": "found_block_*.json saved locally"
-}
-```
+| `Webhook` | Sends one-way JSON POST notifications for jackpot and heartbeat events. |
 
 Webhook notifications never include the BTC address, pool username, private
 keys, or seed phrases. If a webhook fails, the app writes a local warning
@@ -274,39 +246,7 @@ Heartbeat notifications are coarse-grained only: `off`, `30min`, `1h`, or
 `6h`. They include status, hashrate, accepted/rejected shares, best difficulty,
 uptime, and pool host/port. They are never sent once per second.
 
-## GPU mining status
-
-GPU support is experimental real local mining. It still requires manual real
-mining enablement in the UI and never starts automatically.
-
-| Compute mode | Current behavior |
-| --- | --- |
-| `CPU` | Local simulation, or explicitly confirmed real CPU mining. |
-| `GPU Only` | Explicit real mining with one GPU worker and `0` CPU hash threads. |
-| `CPU + GPU` | Explicit real mining with the selected CPU preset plus one GPU worker. |
-
-The GPU backend tries `wgpu` first and falls back to OpenCL when possible.
-Software adapters such as WARP are rejected for real GPU mining because they
-can be slower than CPU mining. The settings panel disables detected software
-GPU entries, while `Auto` still lets the backend select the best available
-hardware path.
-
-GPU Limit choices are `10%`, `25%`, `50%`, `75%`, and `100%`. This value is a
-soft local limiter: it sets the upper batch size and the target GPU duty cycle
-for real mining. For example, `10%` sleeps after each GPU dispatch to keep the
-worker cool, while `100%` runs without intentional throttle sleep. This is not
-an operating-system-enforced power cap, but it prevents the miner loop from
-submitting GPU work continuously at low limit settings.
-
-Detail mode shows the active GPU backend, device name, dispatch size, last
-dispatch latency, and throttle sleep. The backend also writes a low-frequency
-`GPU perf` diagnostic log line so unexpectedly low hashrate can be traced to
-backend choice, device, dispatch timing, or throttle settings.
-
-Use [`GPU_VALIDATION.md`](./GPU_VALIDATION.md) for the release validation matrix
-when GPU enumeration, benchmark, compute mode, or mining loop behavior changes.
-
-## Prerequisites on Windows
+## Prerequisites On Windows
 
 Install:
 
@@ -318,13 +258,13 @@ Install:
 For Microsoft C++ Build Tools, select the **Desktop development with C++**
 workload.
 
-## Install dependencies
+## Install Dependencies
 
 ```powershell
 npm install
 ```
 
-## Development files
+## Development Files
 
 The repository keeps source, lockfiles, configuration, tests, scripts, and docs
 in Git. Generated outputs such as `dist/`, `.test-dist/`, `src-tauri/target/`,
@@ -335,30 +275,30 @@ cache if it exists from older development builds.
 See [`DEVELOPMENT_FILES.md`](./DEVELOPMENT_FILES.md) for the full policy and
 cleanup commands.
 
-## App identity
+## App Identity
 
 The project uses one Windows app identity: `BTC Lottery Pet` with identifier
 `com.btc-lottery-pet.desktop`. Development runs and packaged installer builds
 use the same identity so local testing matches the installed app.
 
 Single-instance protection applies to that identity. If an installed copy is
-already running, close it before starting `npm run tauri:dev`; otherwise Windows
-may focus the existing app instead of opening the source-run process.
+already running, close it before starting `npm run tauri:dev`; otherwise
+Windows may focus the existing app instead of opening the source-run process.
 
-## Tray and logs
+## Tray And Logs
 
 Closing the pet window with `X` hides it to the system tray. It does not start
 or stop mining by itself. Use the tray `Show` item or left-click the tray icon
 to show the window again. Use `Quit` from the tray menu to exit the app.
 
-The tray `Open Logs` item and the Detail Mode `OPEN LOGS` button open the
-app-specific log folder. The Detail Mode `COPY LOG PATH` button copies that
+The tray `Open Logs` item and the Dashboard `OPEN LOGS` button open the
+app-specific log folder. The Dashboard `COPY LOG PATH` button copies that
 local log folder path, `COPY DIAG` copies a sanitized diagnostic snapshot, and
 `SAVE DIAG` writes it to the same folder. The regular mining log is
-`mining.log`; if a block candidate is detected, the event is also saved as
-a timestamped `found_block_*.json` file.
+`mining.log`; if a block candidate is detected, the event is also saved as a
+timestamped `found_block_*.json` file.
 
-## Run and build commands
+## Run And Build Commands
 
 Use exactly one of these commands for the task at hand:
 
@@ -369,7 +309,7 @@ Use exactly one of these commands for the task at hand:
 | `npm run clean:dev:check` | Previews removal of generated development files without deleting them. |
 | `npm run clean:dev` | Removes generated build outputs, Rust/Tauri target caches, local logs, and temporary artifacts. |
 | `.\scripts\clean-dev.ps1 -WhatIf` | Direct cleanup preview for shells where npm is not on PATH. |
-| `npm run tauri:dev` | Recommended development desktop app. Starts Vite for Tauri and opens one `BTC Lottery Pet` desktop window. It does not ask Vite to open a browser. |
+| `npm run tauri:dev` | Recommended development desktop app. Starts Vite for Tauri and opens one `BTC Lottery Pet` desktop window. |
 | `npm run dev` | Browser-only React preview at `http://localhost:1420`. It does not launch Tauri. |
 | `npm run test:frontend` | Runs the no-dependency Node unit tests for frontend mining configuration helpers. |
 | `npm run tauri:build` | Windows NSIS package build for `BTC Lottery Pet`. |
@@ -379,12 +319,12 @@ with `.\scripts\dev-env.ps1`. The verification script can still run frontend
 tests and builds through direct Node entrypoints when `node_modules` is present
 and Node is available.
 
-## Continuous integration
+## Continuous Integration
 
-GitHub Actions runs the fast quality gate on push and pull request:
-production dependency audit, frontend helper tests, frontend build, Rust tests,
-and Rust Clippy with `-D warnings`. The Windows installer artifact job runs for
-`v*` tags or when the workflow is started manually with `build_installer=true`.
+GitHub Actions runs the fast quality gate on push and pull request: production
+dependency audit, frontend helper tests, frontend build, Rust tests, and Rust
+Clippy with `-D warnings`. The Windows installer artifact job runs for `v*`
+tags or when the workflow is started manually with `build_installer=true`.
 
 Release builds use the Windows GUI subsystem, so the packaged app should not
 open an extra black console window next to the pet window. `npm run tauri:dev`
@@ -397,7 +337,7 @@ apparent second window are an old executable that was not closed or an installed
 copy that is still running. The application itself declares only one main Tauri
 window.
 
-## Run the development desktop app
+## Run The Development Desktop App
 
 On Windows, load the Visual Studio developer environment so Rust can find
 `link.exe` and the Windows SDK libraries. With the default Build Tools install
@@ -413,21 +353,21 @@ For a browser-only preview of the React UI:
 npm run dev
 ```
 
-Browser previews can exercise the simulation and settings UI. Real mining runs
+Browser previews can exercise the interface and settings UI. CPU mining runs
 only inside the Tauri app because the Rust backend owns network and hashing.
 
-## Build the Windows installer
+## Build The Windows Installer
 
 ```powershell
 cmd.exe /v:on /d /s /c 'call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" && set "PATH=%USERPROFILE%\.cargo\bin;!PATH!" && npm run tauri:build'
 ```
 
 Tauri writes the executable to `src-tauri\target\release\btc-lottery-pet.exe`
-and the NSIS installer under `src-tauri\target\release\bundle\nsis`.
-The generated installer may download Microsoft's WebView2 bootstrapper when
-the WebView2 runtime is missing from the target computer.
+and the NSIS installer under `src-tauri\target\release\bundle\nsis`. The
+generated installer may download Microsoft's WebView2 bootstrapper when the
+WebView2 runtime is missing from the target computer.
 
-## Release candidate checks
+## Release Candidate Checks
 
 Before each release, verify:
 
@@ -441,7 +381,7 @@ Before each release, verify:
 6. The release executable uses the Windows GUI subsystem and should not open an
    extra black console window. The development command `npm run tauri:dev` can
    still keep its development terminal open; that is expected.
-7. Detail Mode `OPEN LOGS` opens the local app log folder, `COPY LOG PATH`
+7. Dashboard `OPEN LOGS` opens the local app log folder, `COPY LOG PATH`
    copies that folder path, `COPY DIAG` copies sanitized diagnostics, and
    `SAVE DIAG` writes a diagnostic JSON file.
 8. Complete the manual checks in [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)

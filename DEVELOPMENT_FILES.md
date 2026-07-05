@@ -10,7 +10,7 @@ tool caches, logs, and local machine state out of Git.
 - `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, and
   `src-tauri/Cargo.lock`.
 - Tests, release docs, CI config, and reusable scripts under `scripts/`.
-- Small checked-in assets such as icons and shader source files.
+- Small checked-in assets such as icons.
 
 ## Generated Locally
 
@@ -71,6 +71,6 @@ running it.
 ## Release Artifacts
 
 Do not keep large installers or compiled binaries as source files. The
-canonical release destination should be GitHub Releases or another external
-release store. If a local handoff copy is needed, use an ignored temporary
+canonical release destination should be GitHub Releases or another artifact
+store. If a local handoff copy is needed, use an ignored temporary
 folder such as `artifacts/` and delete it after upload.

@@ -5,7 +5,6 @@ export interface ProbabilityInput {
   acceptedShares: number;
   rejectedShares: number;
   miningUptimeSeconds: number;
-  realModeEnabled: boolean;
 }
 
 export interface ProbabilitySnapshot {
@@ -38,7 +37,7 @@ export function calculateProbabilitySnapshot(input: ProbabilityInput): Probabili
     ? Math.log10(input.bestDifficulty + 1) * 12
     : 0;
   const shareFactor = input.acceptedShares * 9 - input.rejectedShares * 3;
-  const modeFactor = input.realModeEnabled ? 8 : 3;
+  const modeFactor = 8;
   const luckMeter = Math.round(clamp(modeFactor + attemptsFactor + bestFactor + shareFactor, 0, 100));
 
   return {

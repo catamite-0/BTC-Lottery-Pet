@@ -1,6 +1,7 @@
 import type { AppConfig, HeartbeatInterval } from "./miningLogic";
+import type { NotificationSettingsPayload } from "./contracts/notifications";
 
-export function notificationSettingsFromConfig(config: AppConfig) {
+export function notificationSettingsFromConfig(config: AppConfig): NotificationSettingsPayload {
   return {
     enableNotifications: config.enable_notifications,
     notifyOnJackpot: config.notify_on_jackpot,

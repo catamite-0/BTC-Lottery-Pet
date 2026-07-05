@@ -1,472 +1,32 @@
-mod algorithm_diagnostics;
-mod gpu_miner;
-mod miner;
-mod notifications;
+mod app_adapter;
+mod mining_runtime;
 
-use std::{
-    fs,
-    io::Write,
-    path::{Path, PathBuf},
-    process::Command,
-    thread,
+pub(crate) use app_adapter::{
+    algorithm_diagnostics, config, diagnostics, mining_settings, notifications,
+};
+pub(crate) use mining_runtime::{
+    block as mining_block, connection as mining_connection, controller as miner,
+    diagnostics as mining_diagnostics, events as mining_events, hash as mining_hash,
+    kernel as mining_kernel, log as mining_log, protocol as mining_protocol,
+    state as mining_state, workers as mining_workers,
 };
 
-use algorithm_diagnostics::{
-    diagnostic_algorithm_kernel_benchmark, AlgorithmKernelBenchmark, DIAGNOSTIC_SCHEMA_VERSION,
+use std::{fs, path::PathBuf, process::Command};
+
+use config::{
+    available_parallelism, load_config, recommended_cpu_threads,
+    reset_saved_config_to_safe_defaults, write_config, AppConfig, SystemInfo,
 };
-use miner::{MiningController, PoolDiagnosticReport, PoolDiagnosticSettings, RealMiningSettings};
-use notifications::{
-    HeartbeatInterval, HeartbeatSnapshot, JackpotNotificationEvent, NotificationChannel,
-    NotificationSettings,
-};
-use serde::{Deserialize, Serialize};
+use diagnostics::{build_diagnostic_snapshot, diagnostic_save_payload, FrontendDiagnosticSection};
+use miner::MiningController;
+use mining_settings::{PoolDiagnosticReport, PoolDiagnosticSettings, RealMiningSettings};
+use notifications::{HeartbeatSnapshot, JackpotNotificationEvent, NotificationSettings};
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, State, WebviewWindow, WindowEvent,
 };
-
-const DEFAULT_CONFIG: &str = include_str!("../../config.json");
-const DEFAULT_POOL_HOST: &str = "public-pool.io";
-const DEFAULT_POOL_PORT: u16 = 3333;
-const DEFAULT_POOL_PASSWORD: &str = "x";
-const DEFAULT_PET_PROFILE_ID: &str = "classic-slot";
-const BUILTIN_PET_PROFILE_IDS: &[&str] = &["classic-slot", "cyber-miner", "lucky-cat"];
-const OLD_PUBLIC_POOL_PORT: u16 = 21496;
-
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum ComputeMode {
-    #[default]
-    Cpu,
-    Gpu,
-    Hybrid,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum PerformancePreset {
-    #[default]
-    Eco,
-    Normal,
-    Turbo,
-    Custom,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum ExternalHashInterface {
-    #[default]
-    None,
-    Network,
-    Direct,
-}
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(default)]
-struct AppConfig {
-    btc_address: String,
-    #[serde(alias = "pool_url")]
-    pool_host: String,
-    pool_port: u16,
-    pool_password: String,
-    worker_name: String,
-    cpu_threads: usize,
-    performance_preset: PerformancePreset,
-    real_mining_enabled: bool,
-    enable_notifications: bool,
-    notify_on_jackpot: bool,
-    notify_on_share_accepted: bool,
-    notify_on_connection_error: bool,
-    heartbeat_interval: HeartbeatInterval,
-    notification_channel: NotificationChannel,
-    webhook_url: String,
-    external_hash_interface: ExternalHashInterface,
-    #[serde(alias = "asic_host")]
-    external_hash_network_host: String,
-    #[serde(alias = "external_hash_direct_endpoint")]
-    external_hash_direct_port: String,
-    external_hash_polling_enabled: bool,
-    external_hash_poll_interval_seconds: u64,
-    compute_mode: ComputeMode,
-    gpu_enabled: bool,
-    gpu_device_id: Option<String>,
-    gpu_intensity_percent: u8,
-    pet_profile_id: String,
-}
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            btc_address: String::new(),
-            pool_host: DEFAULT_POOL_HOST.into(),
-            pool_port: DEFAULT_POOL_PORT,
-            pool_password: DEFAULT_POOL_PASSWORD.into(),
-            worker_name: "btc-lottery-pet".into(),
-            cpu_threads: 1,
-            performance_preset: PerformancePreset::Eco,
-            real_mining_enabled: false,
-            enable_notifications: true,
-            notify_on_jackpot: true,
-            notify_on_share_accepted: false,
-            notify_on_connection_error: true,
-            heartbeat_interval: HeartbeatInterval::Off,
-            notification_channel: NotificationChannel::LocalWindowsToast,
-            webhook_url: String::new(),
-            external_hash_interface: ExternalHashInterface::None,
-            external_hash_network_host: String::new(),
-            external_hash_direct_port: String::new(),
-            external_hash_polling_enabled: false,
-            external_hash_poll_interval_seconds: 60,
-            compute_mode: ComputeMode::Cpu,
-            gpu_enabled: false,
-            gpu_device_id: None,
-            gpu_intensity_percent: 10,
-            pet_profile_id: DEFAULT_PET_PROFILE_ID.into(),
-        }
-    }
-}
-
-impl AppConfig {
-    fn normalized(mut self) -> Self {
-        self.btc_address = self.btc_address.trim().to_owned();
-        self.pool_host = self.pool_host.trim().to_owned();
-        self.pool_password = normalize_pool_password(&self.pool_password);
-        self.worker_name = self.worker_name.trim().to_owned();
-        self.webhook_url = self.webhook_url.trim().to_owned();
-        self.external_hash_interface = ExternalHashInterface::None;
-        self.external_hash_network_host.clear();
-        self.external_hash_direct_port.clear();
-        self.external_hash_polling_enabled = false;
-        self.external_hash_poll_interval_seconds = 60;
-        self.pet_profile_id = normalize_pet_profile_id(&self.pet_profile_id);
-        self.real_mining_enabled = false;
-        self.gpu_device_id = self
-            .gpu_device_id
-            .map(|device_id| device_id.trim().to_owned())
-            .filter(|device_id| !device_id.is_empty());
-
-        if self.pool_host.is_empty() {
-            self.pool_host = DEFAULT_POOL_HOST.into();
-        }
-
-        if is_known_pool_host(&self.pool_host)
-            && (self.pool_port == 0 || self.pool_port == OLD_PUBLIC_POOL_PORT)
-        {
-            self.pool_port = DEFAULT_POOL_PORT;
-        }
-
-        if self.pool_port == 0 {
-            self.pool_port = default_port_for_pool(&self.pool_host);
-        }
-
-        if self.worker_name.is_empty() {
-            self.worker_name = "btc-lottery-pet".into();
-        }
-
-        let available_threads = available_parallelism();
-        let recommended_threads = recommended_cpu_threads();
-        self.cpu_threads = match self.performance_preset {
-            PerformancePreset::Eco => 1,
-            PerformancePreset::Normal => recommended_threads,
-            PerformancePreset::Turbo => available_threads,
-            PerformancePreset::Custom => self.cpu_threads.clamp(1, available_threads),
-        };
-        self.gpu_intensity_percent = self.gpu_intensity_percent.clamp(1, 100);
-
-        match self.compute_mode {
-            ComputeMode::Cpu => {
-                self.gpu_enabled = false;
-                self.gpu_device_id = None;
-            }
-            ComputeMode::Gpu | ComputeMode::Hybrid => {
-                self.gpu_enabled = true;
-            }
-        }
-        if self.compute_mode == ComputeMode::Gpu {
-            self.cpu_threads = 0;
-        }
-
-        self
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-struct SystemInfo {
-    available_parallelism: usize,
-    default_cpu_threads: usize,
-    recommended_cpu_threads: usize,
-}
-
-#[derive(Clone, Debug, Serialize)]
-struct GpuDevice {
-    id: String,
-    name: String,
-    simulated: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    diagnostic: Option<String>,
-}
-
-fn gpu_device_from_info(info: gpu_miner::GpuDeviceInfo) -> GpuDevice {
-    GpuDevice {
-        id: info.id,
-        name: info.name,
-        simulated: info.simulated,
-        diagnostic: None,
-    }
-}
-
-fn gpu_detection_failure_device(error: impl std::fmt::Display) -> GpuDevice {
-    GpuDevice {
-        id: "auto".into(),
-        name: "Auto (GPU detection unavailable)".into(),
-        simulated: true,
-        diagnostic: Some(format!("GPU enumeration failed: {error}")),
-    }
-}
-#[derive(Clone, Debug, Serialize)]
-struct GpuBenchmarkResult {
-    device_id: String,
-    device_name: String,
-    simulated: bool,
-    gpu_intensity_percent: u8,
-    hashrate: f64,
-    duration_ms: u64,
-    note: String,
-    generated_at: String,
-}
-
-#[derive(Clone, Debug, Serialize)]
-struct DiagnosticConfig {
-    pool_host: String,
-    pool_port: u16,
-    worker_name: String,
-    cpu_threads: usize,
-    performance_preset: PerformancePreset,
-    compute_mode: ComputeMode,
-    gpu_enabled: bool,
-    gpu_device_id: Option<String>,
-    gpu_intensity_percent: u8,
-    pet_profile_id: String,
-    external_hash_interface: ExternalHashInterface,
-    external_hash_network_host: String,
-    external_hash_direct_port: String,
-    external_hash_polling_enabled: bool,
-    external_hash_poll_interval_seconds: u64,
-    enable_notifications: bool,
-    notify_on_jackpot: bool,
-    notify_on_share_accepted: bool,
-    notify_on_connection_error: bool,
-    heartbeat_interval: HeartbeatInterval,
-    notification_channel: NotificationChannel,
-}
-
-#[derive(Clone, Debug, Serialize)]
-struct DiagnosticSnapshot {
-    diagnostic_schema_version: u32,
-    generated_at: String,
-    product_name: String,
-    app_version: String,
-    identifier: String,
-    config: DiagnosticConfig,
-    gpu_devices: Vec<GpuDevice>,
-    algorithm_kernel_benchmark: AlgorithmKernelBenchmark,
-    log_path: String,
-    recent_log_lines: Vec<String>,
-    last_connection_error: Option<String>,
-    redacted_fields: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct FrontendDiagnosticSection {
-    title: String,
-    body: String,
-    #[serde(default, alias = "bodyJson", skip_serializing_if = "Option::is_none")]
-    body_json: Option<serde_json::Value>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-struct DiagnosticBundle {
-    diagnostic_bundle_schema_version: u32,
-    generated_at: String,
-    backend_snapshot: serde_json::Value,
-    frontend_sections: Vec<FrontendDiagnosticSection>,
-}
-fn available_parallelism() -> usize {
-    thread::available_parallelism()
-        .map(|count| count.get())
-        .unwrap_or(1)
-}
-
-fn recommended_cpu_threads() -> usize {
-    available_parallelism().min(2)
-}
-
-fn is_known_pool_host(pool_host: &str) -> bool {
-    matches!(
-        pool_host.trim().to_ascii_lowercase().as_str(),
-        "public-pool.io" | "pool.nerdminer.io" | "pool.nerdminers.org"
-    )
-}
-
-fn default_port_for_pool(_pool_host: &str) -> u16 {
-    DEFAULT_POOL_PORT
-}
-
-fn normalize_pool_password(password: &str) -> String {
-    let trimmed = password.trim();
-    if trimmed.is_empty() {
-        DEFAULT_POOL_PASSWORD.into()
-    } else {
-        trimmed.to_owned()
-    }
-}
-
-fn normalize_pet_profile_id(profile_id: &str) -> String {
-    let trimmed = profile_id.trim();
-    if BUILTIN_PET_PROFILE_IDS.contains(&trimmed) {
-        trimmed.to_owned()
-    } else {
-        DEFAULT_PET_PROFILE_ID.into()
-    }
-}
-
-fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let config_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|error| format!("failed to resolve app config directory: {error}"))?;
-
-    fs::create_dir_all(&config_dir)
-        .map_err(|error| format!("failed to create app config directory: {error}"))?;
-
-    Ok(config_dir.join("config.json"))
-}
-
-fn ensure_config(app: &AppHandle) -> Result<PathBuf, String> {
-    let path = config_path(app)?;
-
-    if !path.exists() {
-        fs::write(&path, DEFAULT_CONFIG)
-            .map_err(|error| format!("failed to create default config: {error}"))?;
-    }
-
-    Ok(path)
-}
-
-fn config_temp_path(path: &Path) -> PathBuf {
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("config.json");
-    let timestamp = chrono::Utc::now().timestamp_millis();
-
-    path.with_file_name(format!(
-        "{file_name}.tmp-{}-{timestamp}",
-        std::process::id()
-    ))
-}
-
-fn replace_file_with_backup(source: &Path, destination: &Path) -> Result<(), String> {
-    if !destination.exists() {
-        return fs::rename(source, destination)
-            .map_err(|error| format!("failed to save config: {error}"));
-    }
-
-    let backup = destination.with_extension("json.bak");
-    if backup.exists() {
-        fs::remove_file(&backup)
-            .map_err(|error| format!("failed to remove old config backup: {error}"))?;
-    }
-
-    fs::rename(destination, &backup)
-        .map_err(|error| format!("failed to prepare config backup: {error}"))?;
-
-    match fs::rename(source, destination) {
-        Ok(()) => {
-            let _ = fs::remove_file(&backup);
-            Ok(())
-        }
-        Err(error) => match fs::rename(&backup, destination) {
-            Ok(()) => Err(format!("failed to save config: {error}")),
-            Err(restore_error) => Err(format!(
-                "failed to save config: {error}; failed to restore previous config: {restore_error}"
-            )),
-        },
-    }
-}
-
-fn backup_broken_config(path: &Path, contents: &str) -> Result<PathBuf, String> {
-    let timestamp = chrono::Utc::now().timestamp_millis();
-    let backup_path = path.with_file_name(format!("config.broken-{timestamp}.json"));
-
-    fs::write(&backup_path, contents)
-        .map_err(|error| format!("failed to back up broken config: {error}"))?;
-
-    Ok(backup_path)
-}
-
-fn write_config(app: &AppHandle, config: &AppConfig) -> Result<(), String> {
-    let contents = serde_json::to_string_pretty(config)
-        .map_err(|error| format!("failed to encode config: {error}"))?;
-    let path = config_path(app)?;
-    let temp_path = config_temp_path(&path);
-    let payload = format!("{contents}\n");
-
-    let mut file = fs::File::create(&temp_path)
-        .map_err(|error| format!("failed to create temporary config: {error}"))?;
-    if let Err(error) = file.write_all(payload.as_bytes()) {
-        let _ = fs::remove_file(&temp_path);
-        return Err(format!("failed to write temporary config: {error}"));
-    }
-    if let Err(error) = file.sync_all() {
-        let _ = fs::remove_file(&temp_path);
-        return Err(format!("failed to flush temporary config: {error}"));
-    }
-    drop(file);
-
-    if let Err(error) = replace_file_with_backup(&temp_path, &path) {
-        let _ = fs::remove_file(&temp_path);
-        return Err(error);
-    }
-
-    Ok(())
-}
-
-fn load_config(app: &AppHandle) -> Result<AppConfig, String> {
-    let path = ensure_config(app)?;
-    let contents =
-        fs::read_to_string(&path).map_err(|error| format!("failed to read config: {error}"))?;
-
-    // If the saved config contains values that the current version can't parse
-    // (e.g., old ComputeMode variants from a previous version), fall back to
-    // the default config rather than crashing on startup.
-    let config: AppConfig = match serde_json::from_str(&contents) {
-        Ok(c) => c,
-        Err(error) => {
-            eprintln!("[Config] Failed to parse saved config: {error}. Using defaults.");
-            match backup_broken_config(&path, &contents) {
-                Ok(backup_path) => eprintln!(
-                    "[Config] Backed up broken config to {}.",
-                    backup_path.display()
-                ),
-                Err(backup_error) => eprintln!("[Config] {backup_error}."),
-            }
-            let default: AppConfig =
-                serde_json::from_str(DEFAULT_CONFIG).expect("DEFAULT_CONFIG must always be valid");
-            if let Err(write_error) = write_config(app, &default) {
-                eprintln!("[Config] Failed to rewrite default config: {write_error}.");
-            }
-            default
-        }
-    };
-
-    Ok(config.normalized())
-}
-
-fn reset_saved_config_to_safe_defaults(app: &AppHandle) -> Result<(), String> {
-    let config = load_config(app)?;
-    write_config(app, &config)
-}
 
 #[tauri::command]
 fn get_config(app: AppHandle) -> Result<AppConfig, String> {
@@ -493,74 +53,15 @@ fn get_system_info() -> SystemInfo {
 }
 
 #[tauri::command]
-async fn get_gpu_devices() -> Vec<GpuDevice> {
-    match tauri::async_runtime::spawn_blocking(|| {
-        gpu_miner::enumerate_gpu_devices()
-            .into_iter()
-            .map(gpu_device_from_info)
-            .collect()
-    })
-    .await
-    {
-        Ok(devices) => devices,
-        Err(error) => vec![gpu_detection_failure_device(error)],
-    }
-}
-
-#[tauri::command]
-async fn run_gpu_benchmark(
-    gpu_device_id: Option<String>,
-    gpu_intensity_percent: u8,
-) -> GpuBenchmarkResult {
-    let intensity = gpu_intensity_percent.clamp(1, 100);
-    let generated_at = chrono::Utc::now().to_rfc3339();
-    let fallback_generated_at = generated_at.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        match gpu_miner::run_gpu_benchmark(gpu_device_id.as_deref(), intensity) {
-            Ok(info) => GpuBenchmarkResult {
-                device_id: gpu_device_id.unwrap_or_else(|| "auto".into()),
-                device_name: info.device_name,
-                simulated: info.simulated,
-                gpu_intensity_percent: intensity,
-                hashrate: info.hashrate,
-                duration_ms: info.duration_ms,
-                note: info.note,
-                generated_at: generated_at.clone(),
-            },
-            Err(error) => GpuBenchmarkResult {
-                device_id: gpu_device_id.unwrap_or_else(|| "auto".into()),
-                device_name: "Unknown".into(),
-                simulated: false,
-                gpu_intensity_percent: intensity,
-                hashrate: 0.0,
-                duration_ms: 0,
-                note: format!("GPU benchmark failed: {error}"),
-                generated_at: generated_at.clone(),
-            },
-        }
-    })
-    .await
-    .unwrap_or_else(|_| GpuBenchmarkResult {
-        device_id: "auto".into(),
-        device_name: "Unknown".into(),
-        simulated: false,
-        gpu_intensity_percent: intensity,
-        hashrate: 0.0,
-        duration_ms: 0,
-        note: "GPU benchmark task panicked".into(),
-        generated_at: fallback_generated_at,
-    })
-}
-
-#[tauri::command]
 async fn diagnose_pool_connection(
     settings: PoolDiagnosticSettings,
 ) -> Result<PoolDiagnosticReport, String> {
-    tauri::async_runtime::spawn_blocking(move || miner::diagnose_pool_connection(settings))
-        .await
-        .map_err(|_| "pool diagnostic task panicked".to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        mining_diagnostics::diagnose_pool_connection(settings)
+    })
+    .await
+    .map_err(|_| "pool diagnostic task panicked".to_string())
 }
-
 
 #[tauri::command]
 async fn get_diagnostic_snapshot(app: AppHandle) -> Result<String, String> {
@@ -593,13 +94,13 @@ fn start_real_mining(
     app: AppHandle,
     state: State<'_, MiningController>,
     settings: RealMiningSettings,
-) -> Result<(), String> {
+) -> Result<u64, String> {
     state.start(app, settings)
 }
 
 #[tauri::command]
-fn stop_real_mining(app: AppHandle, state: State<'_, MiningController>) {
-    state.stop(&app);
+fn stop_real_mining(app: AppHandle, state: State<'_, MiningController>) -> Result<(), String> {
+    state.stop(&app)
 }
 
 #[tauri::command]
@@ -653,149 +154,6 @@ fn set_window_always_on_top(window: WebviewWindow, always_on_top: bool) -> Resul
     window
         .set_always_on_top(always_on_top)
         .map_err(|error| format!("failed to update always-on-top setting: {error}"))
-}
-
-fn diagnostic_config(config: AppConfig) -> DiagnosticConfig {
-    DiagnosticConfig {
-        pool_host: config.pool_host,
-        pool_port: config.pool_port,
-        worker_name: config.worker_name,
-        cpu_threads: config.cpu_threads,
-        performance_preset: config.performance_preset,
-        compute_mode: config.compute_mode,
-        gpu_enabled: config.gpu_enabled,
-        gpu_device_id: config.gpu_device_id,
-        gpu_intensity_percent: config.gpu_intensity_percent,
-        pet_profile_id: config.pet_profile_id,
-        external_hash_interface: config.external_hash_interface,
-        external_hash_network_host: config.external_hash_network_host,
-        external_hash_direct_port: config.external_hash_direct_port,
-        external_hash_polling_enabled: config.external_hash_polling_enabled,
-        external_hash_poll_interval_seconds: config.external_hash_poll_interval_seconds,
-        enable_notifications: config.enable_notifications,
-        notify_on_jackpot: config.notify_on_jackpot,
-        notify_on_share_accepted: config.notify_on_share_accepted,
-        notify_on_connection_error: config.notify_on_connection_error,
-        heartbeat_interval: config.heartbeat_interval,
-        notification_channel: config.notification_channel,
-    }
-}
-
-fn read_recent_log_lines(
-    app: &AppHandle,
-    max_lines: usize,
-) -> Result<(String, Vec<String>), String> {
-    let log_dir = ensure_log_dir(app)?;
-    let log_path = log_dir.join("mining.log");
-    let log_path_string = log_path.display().to_string();
-
-    if !log_path.exists() {
-        return Ok((log_path_string, Vec::new()));
-    }
-
-    let contents = fs::read_to_string(&log_path)
-        .map_err(|error| format!("failed to read mining log for diagnostics: {error}"))?;
-    let mut lines = contents
-        .lines()
-        .rev()
-        .take(max_lines)
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    lines.reverse();
-
-    Ok((log_path_string, lines))
-}
-
-fn sanitize_diagnostic_line(line: &str, config: &AppConfig) -> String {
-    let mut sanitized = line.to_owned();
-    for (value, replacement) in [
-        (config.btc_address.trim(), "[redacted btc address]"),
-        (config.webhook_url.trim(), "[redacted webhook url]"),
-    ] {
-        if !value.is_empty() {
-            sanitized = sanitized.replace(value, replacement);
-        }
-    }
-
-    let pool_password = normalize_pool_password(&config.pool_password);
-    if pool_password != DEFAULT_POOL_PASSWORD {
-        sanitized = sanitized.replace(&pool_password, "[redacted pool password]");
-    }
-
-    sanitized
-}
-
-fn diagnostic_redacted_fields(config: &AppConfig) -> Vec<String> {
-    let mut fields = Vec::new();
-    if !config.btc_address.trim().is_empty() {
-        fields.push("btc_address".to_owned());
-    }
-    if normalize_pool_password(&config.pool_password) != DEFAULT_POOL_PASSWORD {
-        fields.push("pool_password".to_owned());
-    }
-    if !config.webhook_url.trim().is_empty() {
-        fields.push("webhook_url".to_owned());
-    }
-    fields
-}
-
-fn diagnostic_save_payload(
-    snapshot: String,
-    frontend_sections: Vec<FrontendDiagnosticSection>,
-) -> Result<String, String> {
-    if frontend_sections.is_empty() {
-        return Ok(snapshot);
-    }
-
-    let backend_snapshot = serde_json::from_str(&snapshot)
-        .map_err(|error| format!("failed to parse backend diagnostic snapshot: {error}"))?;
-    let bundle = DiagnosticBundle {
-        diagnostic_bundle_schema_version: 1,
-        generated_at: chrono::Utc::now().to_rfc3339(),
-        backend_snapshot,
-        frontend_sections,
-    };
-    serde_json::to_string_pretty(&bundle)
-        .map_err(|error| format!("failed to encode diagnostic bundle: {error}"))
-}
-fn build_diagnostic_snapshot(app: &AppHandle) -> Result<String, String> {
-    let config = load_config(app)?;
-    let redacted_fields = diagnostic_redacted_fields(&config);
-    let (log_path, recent_log_lines) = read_recent_log_lines(app, 80)?;
-    let recent_log_lines = recent_log_lines
-        .into_iter()
-        .map(|line| sanitize_diagnostic_line(&line, &config))
-        .collect::<Vec<_>>();
-    let last_connection_error = recent_log_lines
-        .iter()
-        .rev()
-        .find(|line| line.to_ascii_lowercase().contains("connection error"))
-        .cloned();
-    let gpu_devices = gpu_miner::enumerate_gpu_devices()
-        .into_iter()
-        .map(gpu_device_from_info)
-        .collect();
-    let snapshot = DiagnosticSnapshot {
-        diagnostic_schema_version: DIAGNOSTIC_SCHEMA_VERSION,
-        generated_at: chrono::Utc::now().to_rfc3339(),
-        product_name: app
-            .config()
-            .product_name
-            .clone()
-            .unwrap_or_else(|| "BTC Lottery Pet".into()),
-        app_version: env!("CARGO_PKG_VERSION").into(),
-        identifier: app.config().identifier.clone(),
-        config: diagnostic_config(config),
-        gpu_devices,
-        algorithm_kernel_benchmark: diagnostic_algorithm_kernel_benchmark(),
-        log_path,
-        recent_log_lines,
-        last_connection_error,
-        redacted_fields,
-    };
-
-    serde_json::to_string_pretty(&snapshot)
-        .map_err(|error| format!("failed to encode diagnostic snapshot: {error}"))
 }
 
 fn show_main_window(app: &AppHandle) {
@@ -930,8 +288,6 @@ pub fn run() {
             get_config,
             save_config,
             get_system_info,
-            get_gpu_devices,
-            run_gpu_benchmark,
             diagnose_pool_connection,
             get_diagnostic_snapshot,
             save_diagnostic_snapshot,
@@ -951,53 +307,52 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        backup_broken_config, get_system_info, replace_file_with_backup, AppConfig, ComputeMode,
-        ExternalHashInterface, PerformancePreset,
+    use super::get_system_info;
+    use crate::algorithm_diagnostics::{
+        diagnostic_algorithm_kernel_benchmark, AlgorithmKernelBenchmark, DIAGNOSTIC_SCHEMA_VERSION,
     };
-    use crate::gpu_miner;
-
-    fn run_gpu_hardware_tests() -> bool {
-        std::env::var_os("BTC_LOTTERY_PET_RUN_GPU_HARDWARE_TESTS").is_some()
-    }
-
+    use crate::config::{
+        available_parallelism, backup_broken_config, recommended_cpu_threads,
+        replace_file_with_backup, AppConfig, PerformancePreset,
+    };
+    use crate::diagnostics::{
+        diagnostic_config, diagnostic_redacted_fields, diagnostic_save_payload,
+        sanitize_diagnostic_line, DiagnosticSnapshot, FrontendDiagnosticSection,
+    };
     #[test]
     fn normalizes_saved_config_to_safe_startup_values() {
         let config = AppConfig {
-            real_mining_enabled: true,
-            compute_mode: ComputeMode::Gpu,
-            gpu_enabled: true,
-            gpu_device_id: Some("simulated-gpu".into()),
-            external_hash_interface: ExternalHashInterface::Direct,
-            external_hash_polling_enabled: true,
-            external_hash_poll_interval_seconds: 7_200,
+            cpu_threads: available_parallelism() + 5,
+            performance_preset: PerformancePreset::Custom,
             ..AppConfig::default()
         };
 
         let normalized = config.normalized();
 
-        assert!(!normalized.real_mining_enabled);
-        assert_eq!(normalized.compute_mode, ComputeMode::Gpu);
-        assert!(normalized.gpu_enabled);
-        assert!(!normalized.external_hash_polling_enabled);
-        assert_eq!(normalized.external_hash_poll_interval_seconds, 60);
+        assert_eq!(normalized.cpu_threads, available_parallelism());
     }
 
     #[test]
-    fn direct_endpoint_alias_loads_as_reserved_direct_endpoint() {
+    fn removed_runtime_fields_are_ignored() {
         let config: AppConfig = serde_json::from_str(
             r#"{
-                "external_hash_interface": "direct",
-                "external_hash_direct_endpoint": " usb://future-miner "
+                "removed_runtime_mode": "device",
+                "removed_runtime_enabled": true,
+                "removed_runtime_id": "simulated-device",
+                "removed_runtime_endpoint": " device://future-miner ",
+                "removed_runtime_polling_enabled": true
             }"#,
         )
         .unwrap();
 
         let normalized = config.normalized();
+        let value = serde_json::to_value(normalized).unwrap();
 
-        assert_eq!(normalized.external_hash_interface, ExternalHashInterface::None);
-        assert_eq!(normalized.external_hash_direct_port, "");
-        assert!(!normalized.external_hash_polling_enabled);
+        assert!(value.get("removed_runtime_mode").is_none());
+        assert!(value.get("removed_runtime_enabled").is_none());
+        assert!(value.get("removed_runtime_id").is_none());
+        assert!(value.get("removed_runtime_endpoint").is_none());
+        assert!(value.get("removed_runtime_polling_enabled").is_none());
     }
 
     #[test]
@@ -1042,21 +397,6 @@ mod tests {
     }
 
     #[test]
-    fn compute_mode_controls_gpu_enabled_flag() {
-        let config = AppConfig {
-            compute_mode: ComputeMode::Gpu,
-            gpu_enabled: false,
-            ..AppConfig::default()
-        };
-
-        let normalized = config.normalized();
-
-        assert_eq!(normalized.compute_mode, ComputeMode::Gpu);
-        assert!(normalized.gpu_enabled);
-        assert_eq!(normalized.cpu_threads, 0);
-    }
-
-    #[test]
     fn pet_profile_id_defaults_and_rejects_unknown_values() {
         let default = AppConfig::default().normalized();
         assert_eq!(default.pet_profile_id, "classic-slot");
@@ -1078,8 +418,8 @@ mod tests {
 
     #[test]
     fn performance_presets_control_cpu_threads() {
-        let available_threads = super::available_parallelism();
-        let recommended_threads = super::recommended_cpu_threads();
+        let available_threads = available_parallelism();
+        let recommended_threads = recommended_cpu_threads();
 
         let eco = AppConfig {
             performance_preset: PerformancePreset::Eco,
@@ -1135,7 +475,7 @@ mod tests {
             ..AppConfig::default()
         };
 
-        let serialized = serde_json::to_string(&super::diagnostic_config(config)).unwrap();
+        let serialized = serde_json::to_string(&diagnostic_config(config)).unwrap();
 
         assert!(serialized.contains("public-pool.io"));
         assert!(serialized.contains("desktop"));
@@ -1149,15 +489,14 @@ mod tests {
 
     #[test]
     fn diagnostic_snapshot_schema_uses_single_identity_fields() {
-        let snapshot = super::DiagnosticSnapshot {
-            diagnostic_schema_version: super::DIAGNOSTIC_SCHEMA_VERSION,
+        let snapshot = DiagnosticSnapshot {
+            diagnostic_schema_version: DIAGNOSTIC_SCHEMA_VERSION,
             generated_at: "2026-06-15T00:00:00Z".into(),
             product_name: "BTC Lottery Pet".into(),
             app_version: env!("CARGO_PKG_VERSION").into(),
             identifier: "com.btc-lottery-pet.desktop".into(),
-            config: super::diagnostic_config(AppConfig::default()),
-            gpu_devices: Vec::new(),
-            algorithm_kernel_benchmark: super::AlgorithmKernelBenchmark {
+            config: diagnostic_config(AppConfig::default()),
+            algorithm_kernel_benchmark: AlgorithmKernelBenchmark {
                 status: "ok".into(),
                 nonce_count: 2048,
                 full_header_hashrate: 1.0,
@@ -1188,9 +527,9 @@ mod tests {
         let backend =
             r#"{"diagnostic_schema_version":3,"algorithm_kernel_benchmark":{"status":"ok"}}"#
                 .to_string();
-        let payload = super::diagnostic_save_payload(
+        let payload = diagnostic_save_payload(
             backend,
-            vec![super::FrontendDiagnosticSection {
+            vec![FrontendDiagnosticSection {
                 title: "Frontend Mining Algorithm Plan".into(),
                 body:
                     "{\"operatingPolicy\":{\"kernelOptimization\":{\"mode\":\"midstate_density\"}}}"
@@ -1229,14 +568,14 @@ mod tests {
     #[test]
     fn diagnostic_save_payload_keeps_legacy_backend_snapshot_without_frontend_sections() {
         let backend = r#"{"diagnostic_schema_version":3}"#.to_string();
-        let payload = super::diagnostic_save_payload(backend.clone(), Vec::new()).unwrap();
+        let payload = diagnostic_save_payload(backend.clone(), Vec::new()).unwrap();
 
         assert_eq!(payload, backend);
     }
 
     #[test]
     fn diagnostic_algorithm_kernel_benchmark_reports_midstate_ratio() {
-        let benchmark = super::diagnostic_algorithm_kernel_benchmark();
+        let benchmark = diagnostic_algorithm_kernel_benchmark();
 
         assert_eq!(benchmark.status, "ok");
         assert_eq!(benchmark.nonce_count, 2048);
@@ -1259,7 +598,7 @@ mod tests {
             ..AppConfig::default()
         };
 
-        let sanitized = super::sanitize_diagnostic_line(
+        let sanitized = sanitize_diagnostic_line(
             "connection error for 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa with d=1 via https://example.invalid/secret-hook",
             &config,
         );
@@ -1275,7 +614,7 @@ mod tests {
     #[test]
     fn diagnostic_redacted_fields_track_configured_sensitive_values() {
         let empty = AppConfig::default();
-        assert!(super::diagnostic_redacted_fields(&empty).is_empty());
+        assert!(diagnostic_redacted_fields(&empty).is_empty());
 
         let configured = AppConfig {
             btc_address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into(),
@@ -1285,7 +624,7 @@ mod tests {
         };
 
         assert_eq!(
-            super::diagnostic_redacted_fields(&configured),
+            diagnostic_redacted_fields(&configured),
             vec![
                 "btc_address".to_owned(),
                 "pool_password".to_owned(),
@@ -1336,31 +675,5 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&backup).unwrap(), "{ broken json");
 
         let _ = std::fs::remove_dir_all(dir);
-    }
-    #[test]
-    fn gpu_benchmark_returns_a_result() {
-        if !run_gpu_hardware_tests() {
-            eprintln!("skipping hardware GPU backend smoke test");
-            return;
-        }
-
-        // Call the underlying sync functions directly (the Tauri commands are async wrappers)
-        let devices = gpu_miner::enumerate_gpu_devices();
-
-        // There should always be at least the "auto" entry
-        assert!(!devices.is_empty());
-        assert_eq!(devices[0].id, "auto");
-
-        // Verify GPU backend can be initialized (but don't run actual mining
-        // batches — old/buggy OpenCL drivers like AMD Caicos can crash the
-        // process with STATUS_ACCESS_VIOLATION during kernel execution).
-        match gpu_miner::create_gpu_backend(None, 25) {
-            Ok(gpu) => {
-                assert!(!gpu.device_name().is_empty());
-            }
-            Err(_) => {
-                // GPU init may fail on machines without a compatible GPU — that's OK
-            }
-        }
     }
 }

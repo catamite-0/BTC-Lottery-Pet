@@ -1,0 +1,13 @@
+[package]
+name = "btc-hash-cpu"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "btc_hash_cpu"
+path = "src/lib.rs"
+
+[dependencies]
+btc-hash-core = { path = "../btc-hash-core" }
+hex = "0.4"
+sha2 = { version = "0.10", features = ["compress"] }

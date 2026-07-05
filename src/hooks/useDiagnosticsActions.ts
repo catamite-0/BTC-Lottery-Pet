@@ -1,13 +1,13 @@
-import { invoke } from "@tauri-apps/api/core";
 import type { Dispatch, SetStateAction } from "react";
+import type { FrontendDiagnosticSection } from "../contracts/diagnostics";
 import { parseBackendDiagnosticBridge } from "../domain/diagnosticSnapshotBridge";
 import { formatError } from "../formatting";
-
-interface FrontendDiagnosticSection {
-  title: string;
-  body: string;
-  bodyJson?: unknown;
-}
+import {
+  getDiagnosticSnapshot,
+  getLogPath,
+  openLogFolder,
+  saveDiagnosticSnapshot,
+} from "../platform/tauri/diagnosticsClient";
 
 interface FrontendDiagnosticContext {
   backendDiagnosticSnapshot: ReturnType<typeof parseBackendDiagnosticBridge>;
@@ -47,7 +47,7 @@ export function useDiagnosticsActions({
     setErrorMessage(null);
 
     try {
-      await invoke("open_log_folder");
+      await openLogFolder();
     } catch (error) {
       if (runningInTauri) {
         setErrorMessage(`Could not open logs: ${formatError(error)}`);
@@ -61,7 +61,7 @@ export function useDiagnosticsActions({
     setErrorMessage(null);
 
     try {
-      const path = await invoke<string>("get_log_path");
+      const path = await getLogPath();
       await navigator.clipboard.writeText(path);
       setPetLogMessage("Log path copied.");
     } catch (error) {
@@ -77,7 +77,7 @@ export function useDiagnosticsActions({
     setErrorMessage(null);
 
     try {
-      const snapshot = await invoke<string>("get_diagnostic_snapshot");
+      const snapshot = await getDiagnosticSnapshot();
 
       const frontendSections = frontendSectionsForSnapshot(snapshot);
 
@@ -102,9 +102,9 @@ export function useDiagnosticsActions({
     setErrorMessage(null);
 
     try {
-      const snapshot = await invoke<string>("get_diagnostic_snapshot");
+      const snapshot = await getDiagnosticSnapshot();
       const frontendSections = structuredFrontendSectionsForSnapshot(snapshot);
-      await invoke("save_diagnostic_snapshot", { frontendSections });
+      await saveDiagnosticSnapshot(frontendSections);
       setPetLogMessage("Diagnostic snapshot saved.");
     } catch (error) {
       if (runningInTauri) {

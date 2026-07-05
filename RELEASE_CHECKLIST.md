@@ -43,15 +43,15 @@ artifact job runs for `v*` tags or when the workflow is started manually with
       skipped.
 - [ ] Switch display modes between compact and detail.
 
-## Real Mining Smoke
+## Real CPU Mining Smoke
 
 Use a BTC mainnet address you control. Plain Stratum v1 is unencrypted, so do
 not use a private or sensitive worker label.
 
-- [ ] CPU Only + Eco connects to the configured pool.
+- [ ] Eco preset connects to the configured pool.
 - [ ] Settings `TEST POOL` passes DNS, TCP, subscribe, authorize, and job
       delivery for the selected pool.
-- [ ] CPU Only receives a job and updates connection status to `Mining`.
+- [ ] Real CPU mining receives a job and updates connection status to `Mining`.
 - [ ] `STOP` emits a stopped stats snapshot and hash rate returns to zero.
 - [ ] Repeated START/STOP cycles do not leave stale pending shares.
 - [ ] Invalid pool host shows a local validation message before startup.
@@ -61,20 +61,14 @@ not use a private or sensitive worker label.
 - [ ] Detail Mode `COPY LOG PATH` copies the log folder path.
 - [ ] Detail Mode `COPY DIAG` copies valid JSON.
 
-## GPU Smoke
+## CPU Runtime Smoke
 
-Run these only on hardware where GPU mining is acceptable.
-Use [`GPU_VALIDATION.md`](./GPU_VALIDATION.md) for the full hardware matrix and
-release-note evidence.
-
-- [ ] Settings lists a hardware GPU or reports that none is available.
-- [ ] Software adapters are disabled for real mining.
-- [ ] GPU benchmark returns a result or a clear failure note.
-- [ ] GPU Only refuses to start when no hardware GPU is detected.
-- [ ] GPU Only starts with 0 CPU hash threads when hardware is available.
-- [ ] Hybrid mode starts with CPU workers plus one GPU worker.
-- [ ] `GPU perf` diagnostic logs appear during sustained GPU mining.
-- [ ] GPU backend failure stops GPU-only mining and reports `GPU unavailable`.
+- [ ] Eco, Normal, Turbo, and Custom presets map to expected CPU thread counts.
+- [ ] A custom thread count cannot exceed the detected logical CPU maximum.
+- [ ] High CPU warning appears for Turbo or high Custom starts.
+- [ ] Detail Mode reports hashrate, accepted/rejected shares, best difficulty,
+      uptime, job id, and connection status.
+- [ ] Diagnostics report the sanitized CPU runtime summary.
 
 ## Notifications Smoke
 
@@ -88,16 +82,18 @@ release-note evidence.
 ## Diagnostic Privacy
 
 - [ ] `COPY DIAG` JSON excludes `btc_address`.
+- [ ] `COPY DIAG` JSON excludes `pool_password`.
 - [ ] `COPY DIAG` JSON excludes `webhook_url`.
 - [ ] Recent log lines redact any configured BTC address.
+- [ ] Recent log lines redact any configured pool password.
 - [ ] Recent log lines redact any configured webhook URL.
 - [ ] Diagnostic JSON includes `diagnostic_schema_version`.
-- [ ] Diagnostic JSON includes app version, identifier, GPU devices, log
-      path, and recent log lines.
+- [ ] Diagnostic JSON includes app version, identifier, log path, and recent
+      log lines.
 
 ## Release Notes
 
 - [ ] Update `CHANGELOG.md`.
 - [ ] Include the installer path and file size in the release notes.
-- [ ] State which real mining and GPU smoke checks were performed.
+- [ ] State which real CPU mining smoke checks were performed.
 - [ ] State any checks that were skipped and why.

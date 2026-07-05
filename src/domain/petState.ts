@@ -1,12 +1,9 @@
-import type { ComputeMode } from "../miningLogic";
 import type { JackpotSequencePhase } from "./jackpotSequence";
 import type { MiningEvent } from "./miningEvents";
 
 export type PetState =
   | "IDLE"
-  | "DREAMING"
   | "MINING_CPU"
-  | "MINING_GPU"
   | "MINING_POOL"
   | "LUCKY_EVENT"
   | "DISCONNECTED"
@@ -25,11 +22,9 @@ export type PetStatus =
 
 export interface PetStateContext {
   isMining: boolean;
-  realModeEnabled: boolean;
   isCoolingDown: boolean;
   attentionEventType?: MiningEvent["type"] | null;
   jackpotPhase?: JackpotSequencePhase;
-  computeMode: ComputeMode;
   connectionStatus: string;
   currentJobId: string;
 }
@@ -80,20 +75,12 @@ export function derivePetState(context: PetStateContext): PetState {
     return "DISCONNECTED";
   }
 
-  if (context.realModeEnabled && isConnectionProblem(context.connectionStatus)) {
+  if (isConnectionProblem(context.connectionStatus)) {
     return "ERROR";
-  }
-
-  if (!context.realModeEnabled) {
-    return "DREAMING";
   }
 
   if (isPoolHandshake(context.connectionStatus, context.currentJobId)) {
     return "MINING_POOL";
-  }
-
-  if (context.computeMode === "gpu" || context.computeMode === "hybrid") {
-    return "MINING_GPU";
   }
 
   return "MINING_CPU";
@@ -103,12 +90,8 @@ export function petStatusFromState(state: PetState, context: PetStateContext): P
   switch (state) {
     case "IDLE":
       return "Sleeping";
-    case "DREAMING":
-      return "Mining";
     case "MINING_CPU":
       return "Mining";
-    case "MINING_GPU":
-      return "Overdrive";
     case "MINING_POOL":
       return "Connecting";
     case "LUCKY_EVENT":
@@ -128,7 +111,7 @@ export function petStatusFromState(state: PetState, context: PetStateContext): P
 }
 
 export function isAnimatedMiningState(state: PetState) {
-  return state === "DREAMING" || state === "MINING_CPU" || state === "MINING_GPU";
+  return state === "MINING_CPU";
 }
 
 export function petStateLabel(state: PetState) {

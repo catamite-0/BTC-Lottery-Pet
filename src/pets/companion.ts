@@ -1,6 +1,5 @@
 import type { MiningEvent } from "../domain/miningEvents";
 import type { PetState, PetStatus } from "../domain/petState";
-import type { ComputeMode } from "../miningLogic";
 import type { PetProfile } from "./profiles.js";
 
 export type PetMood =
@@ -42,8 +41,6 @@ export interface PetCompanionContext {
   petState: PetState;
   petStatus: PetStatus;
   isMining: boolean;
-  realModeEnabled: boolean;
-  computeMode: ComputeMode;
   connectionStatus: string;
   latestLog: string;
   lastEvent: MiningEvent | null;
@@ -127,20 +124,20 @@ function reactionForStatus(profile: PetProfile, status: PetStatus, lastEvent: Mi
   }
 }
 
-function needForMood(mood: PetMood, realModeEnabled: boolean, connectionStatus: string) {
+function needForMood(mood: PetMood, connectionStatus: string) {
   switch (mood) {
     case "resting":
-      return "Pick a run or let it idle.";
+      return "Configure the pool or let it idle.";
     case "curious":
-      return realModeEnabled ? `Handshake: ${connectionStatus || "Starting"}` : "Simulation is warming up.";
+      return `Handshake: ${connectionStatus || "Starting"}`;
     case "focused":
       return "Keep the run steady.";
     case "hyped":
-      return "Watch GPU pressure.";
+      return "Watch CPU pressure.";
     case "proud":
       return "Check the latest signal.";
     case "stressed":
-      return "Pool, GPU, or network needs attention.";
+      return "Pool or network needs attention.";
     case "recovering":
       return "Give the cabinet a moment.";
   }
@@ -155,7 +152,7 @@ export function derivePetCompanionSnapshot(context: PetCompanionContext): PetCom
     ? Math.min(24, Math.log10(context.hashrate) * 3)
     : 0;
   const miningDrain = context.isMining
-    ? Math.min(30, context.miningUptimeSeconds / 90 + (context.computeMode === "gpu" ? 8 : 0))
+    ? Math.min(30, context.miningUptimeSeconds / 90)
     : 0;
   const restingGain = context.isMining ? 0 : Math.min(18, context.appUptimeSeconds / 120);
 
@@ -172,7 +169,7 @@ export function derivePetCompanionSnapshot(context: PetCompanionContext): PetCom
       accepted * 5 -
       rejected * 4 +
       bestDifficultyScore +
-      (context.realModeEnabled ? 6 : 0) +
+      6 +
       (mood === "proud" ? 10 : 0),
   );
   const focus = clampPercent(
@@ -186,12 +183,6 @@ export function derivePetCompanionSnapshot(context: PetCompanionContext): PetCom
 
   const eventSignal = compactEventLabel(context.lastEvent);
   const latestSignal = eventSignal ?? context.latestLog ?? "Ready";
-  const modeLabel = context.realModeEnabled
-    ? context.computeMode === "hybrid"
-      ? "CPU+GPU"
-      : context.computeMode.toUpperCase()
-    : "SIM";
-
   return {
     profileId: context.profile.id,
     name: context.profile.personality.name,
@@ -201,7 +192,7 @@ export function derivePetCompanionSnapshot(context: PetCompanionContext): PetCom
     mood,
     moodLabel: moodLabels[mood],
     reaction: reactionForStatus(context.profile, context.petStatus, context.lastEvent),
-    need: needForMood(mood, context.realModeEnabled, context.connectionStatus),
+    need: needForMood(mood, context.connectionStatus),
     latestSignal,
     care: {
       energy: { label: "Energy", value: energy },
@@ -211,7 +202,7 @@ export function derivePetCompanionSnapshot(context: PetCompanionContext): PetCom
     badges: [
       ["MOOD", moodLabels[mood]],
       ["TRAIT", context.profile.personality.trait],
-      ["MODE", modeLabel],
+      ["MODE", "CPU"],
     ],
     ariaLabel: `${context.profile.personality.name}, ${moodLabels[mood]} ${context.profile.personality.species}`,
   };

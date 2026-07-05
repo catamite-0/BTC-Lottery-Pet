@@ -1,6 +1,6 @@
 import type { MiningEvent } from "./miningEvents";
 
-export type DevLogSource = "system" | "simulation" | "stratum" | "cpu" | "gpu" | "diagnostic";
+export type DevLogSource = "system" | "stratum" | "cpu" | "diagnostic";
 
 export interface DevLogEntry {
   id: string;
@@ -51,28 +51,6 @@ export function petLogMessageFromMiningEvent(event: MiningEvent) {
   }
 }
 
-export function petLogMessageFromRawLog(message: string) {
-  const lower = message.toLowerCase();
-
-  if (lower.includes("connected to pool")) {
-    return "I found the pool signal.";
-  }
-
-  if (lower.includes("worker authorized successfully")) {
-    return "The pool knows my name.";
-  }
-
-  if (lower.includes("job received")) {
-    return "A fresh puzzle arrived.";
-  }
-
-  if (lower.includes("connection error")) {
-    return "I lost the pool signal.";
-  }
-
-  return null;
-}
-
 export function latestPetLogMessage(entry: PetLogEntry | null) {
-  return entry?.message ?? "Ready to dream.";
+  return entry?.message ?? "Ready for CPU mining.";
 }

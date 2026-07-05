@@ -1,7 +1,7 @@
 import type { BlockFoundEvent } from "../miningLogic";
 
 export type MiningEventLevel = "LOW_LEVEL" | "MID_LEVEL" | "HIGH_LEVEL";
-export type MiningEventSource = "simulation" | "cpu" | "gpu" | "stratum" | "ui";
+export type MiningEventSource = "cpu" | "ui";
 
 export type MiningEvent =
   | {

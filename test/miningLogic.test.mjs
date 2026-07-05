@@ -4,18 +4,13 @@ import assert from "node:assert/strict";
 import {
   adaptConfigForHardware,
   createRuntimeCapabilities,
-  cpuKernelModeForRouteAlgorithm,
   expectedSharesPerHour,
   formatShareRate,
   formatHashrate,
-  hasHardwareGpuDevice,
-  hasSoftwareGpuDevice,
-  isGpuComputeMode,
   normalizeAppConfig,
   presetPort,
   realMiningStartError,
   resolveRuntimeMiningProfile,
-  sanitizeGpuDeviceId,
   threadsForPreset,
 } from "../.test-dist/miningLogic.js";
 import {
@@ -35,8 +30,7 @@ import {
   nextJackpotPhase,
   startJackpotSequence,
 } from "../.test-dist/domain/jackpotSequence.js";
-import { createSimulationEngine } from "../.test-dist/engines/miningEngine.js";
-import { miningModeForRuntime } from "../.test-dist/domain/miningMode.js";
+import { createCpuMiningEngine } from "../.test-dist/engines/miningEngine.js";
 import {
   derivePetCompanionSnapshot,
   petMoodFromStatus,
@@ -59,12 +53,6 @@ const systemInfo = {
   recommended_cpu_threads: 2,
 };
 
-const devices = [
-  { id: "auto", name: "Auto", simulated: false },
-  { id: "gpu-0", name: "Hardware GPU", simulated: false },
-  { id: "gpu-1", name: "Software Adapter", simulated: true },
-];
-
 function validConfig(overrides = {}) {
   return {
     btc_address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
@@ -74,7 +62,6 @@ function validConfig(overrides = {}) {
     worker_name: "desk_1",
     cpu_threads: 1,
     performance_preset: "eco",
-    real_mining_enabled: false,
     enable_notifications: true,
     notify_on_jackpot: true,
     notify_on_share_accepted: false,
@@ -82,15 +69,6 @@ function validConfig(overrides = {}) {
     heartbeat_interval: "off",
     notification_channel: "local_windows_toast",
     webhook_url: "",
-    external_hash_interface: "none",
-    external_hash_network_host: "",
-    external_hash_direct_port: "",
-    external_hash_polling_enabled: false,
-    external_hash_poll_interval_seconds: 60,
-    compute_mode: "cpu",
-    gpu_enabled: false,
-    gpu_device_id: null,
-    gpu_intensity_percent: 10,
     pet_profile_id: DEFAULT_PET_PROFILE_ID,
     ...overrides,
   };
@@ -109,90 +87,44 @@ test("performance presets enforce conservative CPU thread bounds", () => {
   assert.equal(threadsForPreset("turbo", systemInfo, 1), 8);
   assert.equal(threadsForPreset("custom", systemInfo, 99), 8);
   assert.equal(threadsForPreset("custom", systemInfo, -4), 1);
-  assert.equal(threadsForPreset("turbo", systemInfo, 8, true), 0);
 });
 
-test("GPU helpers distinguish hardware from software adapters", () => {
-  assert.equal(isGpuComputeMode("cpu"), false);
-  assert.equal(isGpuComputeMode("gpu"), true);
-  assert.equal(isGpuComputeMode("hybrid"), true);
-  assert.equal(hasHardwareGpuDevice(devices), true);
-  assert.equal(hasSoftwareGpuDevice(devices), true);
-  assert.equal(sanitizeGpuDeviceId("gpu-0", devices), "gpu-0");
-  assert.equal(sanitizeGpuDeviceId("gpu-1", devices), null);
-  assert.equal(sanitizeGpuDeviceId("auto", devices), null);
-  assert.equal(sanitizeGpuDeviceId("missing", devices), null);
-});
-
-test("runtime capabilities summarize the current device", () => {
-  const capabilities = createRuntimeCapabilities(systemInfo, devices);
+test("runtime capabilities summarize CPU capacity only", () => {
+  const capabilities = createRuntimeCapabilities(systemInfo);
 
   assert.equal(capabilities.availableCpuThreads, 8);
   assert.equal(capabilities.recommendedCpuThreads, 2);
-  assert.equal(capabilities.hardwareGpuAvailable, true);
-  assert.equal(capabilities.softwareGpuAvailable, true);
-  assert.deepEqual(capabilities.hardwareGpuIds, ["gpu-0"]);
-  assert.equal(capabilities.signature, "cpu:8|rec:2|gpu:gpu-0|soft:gpu-1");
+  assert.equal(capabilities.signature, "cpu:8|rec:2");
 });
 
-test("hardware adaptation makes old machine settings safe on this device", () => {
+test("hardware adaptation clamps old CPU settings to this device", () => {
   const smallSystem = {
     available_parallelism: 2,
     default_cpu_threads: 1,
     recommended_cpu_threads: 1,
   };
-  const softwareOnlyDevices = [
-    { id: "auto", name: "Auto", simulated: false },
-    { id: "gpu-1", name: "Software Adapter", simulated: true },
-  ];
 
   const result = adaptConfigForHardware(
     validConfig({
-      compute_mode: "gpu",
-      gpu_enabled: true,
-      gpu_device_id: "gpu-0",
       performance_preset: "custom",
       cpu_threads: 16,
-      gpu_intensity_percent: 250,
-      real_mining_enabled: true,
     }),
     smallSystem,
-    softwareOnlyDevices,
   );
 
-  assert.equal(result.config.compute_mode, "cpu");
-  assert.equal(result.config.gpu_enabled, false);
-  assert.equal(result.config.gpu_device_id, null);
   assert.equal(result.config.cpu_threads, 2);
-  assert.equal(result.config.gpu_intensity_percent, 100);
-  assert.equal(result.config.real_mining_enabled, false);
   assert.equal(result.changed, true);
-  assert.equal(result.messages.includes("Selected GPU was not available on this device; using Auto GPU."), true);
-  assert.equal(result.messages.includes("No hardware GPU detected; switched compute mode to CPU."), true);
   assert.equal(result.messages.includes("CPU threads adjusted to 2 for this device."), true);
-  assert.equal(result.messages.includes("GPU limit adjusted to 100%."), true);
 });
 
 
-test("cpu kernel mode only enables midstate after the route certificate proves it", () => {
-  assert.equal(cpuKernelModeForRouteAlgorithm("double_sha256_midstate"), "midstate");
-  assert.equal(cpuKernelModeForRouteAlgorithm("double_sha256_full_header"), "full_header");
-  assert.equal(cpuKernelModeForRouteAlgorithm("double_sha256_pending_midstate"), "full_header");
-});
-test("runtime mining mode follows actual compute mode", () => {
-  assert.equal(miningModeForRuntime(false, "gpu", "hardcore"), "dream");
-  assert.equal(miningModeForRuntime(true, "gpu", "mining"), "hardcore");
-  assert.equal(miningModeForRuntime(true, "hybrid", "mining"), "hardcore");
-  assert.equal(miningModeForRuntime(true, "cpu", "solo"), "solo");
-  assert.equal(miningModeForRuntime(true, "cpu", "hardcore"), "mining");
-});
 test("hashrate formatting uses stable units", () => {
   assert.equal(formatHashrate(999), "999 H/s");
   assert.equal(formatHashrate(1_500), "1.50 KH/s");
   assert.equal(formatHashrate(2_500_000), "2.50 MH/s");
 });
 
-test("config normalization trims fields and records GPU-only as zero CPU threads", () => {
+test("config normalization trims fields and applies CPU presets", () => {
   const normalized = normalizeAppConfig(
     validConfig({
       btc_address: "  1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa  ",
@@ -202,16 +134,10 @@ test("config normalization trims fields and records GPU-only as zero CPU threads
       worker_name: "  desk_1  ",
       cpu_threads: 99,
       performance_preset: "turbo",
-      real_mining_enabled: true,
       notification_channel: "webhook",
       webhook_url: "  https://example.invalid/hook  ",
-      compute_mode: "gpu",
-      gpu_enabled: false,
-      gpu_device_id: "gpu-0",
-      gpu_intensity_percent: 250,
     }),
     systemInfo,
-    devices,
   );
 
   assert.equal(normalized.btc_address, "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa");
@@ -219,11 +145,7 @@ test("config normalization trims fields and records GPU-only as zero CPU threads
   assert.equal(normalized.pool_port, 3333);
   assert.equal(normalized.pool_password, "d=1");
   assert.equal(normalized.worker_name, "desk_1");
-  assert.equal(normalized.real_mining_enabled, false);
-  assert.equal(normalized.cpu_threads, 0);
-  assert.equal(normalized.gpu_enabled, true);
-  assert.equal(normalized.gpu_device_id, "gpu-0");
-  assert.equal(normalized.gpu_intensity_percent, 100);
+  assert.equal(normalized.cpu_threads, 8);
   assert.equal(normalized.pet_profile_id, DEFAULT_PET_PROFILE_ID);
   assert.equal(normalized.webhook_url, "https://example.invalid/hook");
 });
@@ -299,8 +221,6 @@ test("pet companion snapshot adds mood, care, and personality feedback", () => {
     petState: "IDLE",
     petStatus: "Sleeping",
     isMining: false,
-    realModeEnabled: false,
-    computeMode: "cpu",
     connectionStatus: "Stopped",
     latestLog: "Ready",
     lastEvent: null,
@@ -321,11 +241,9 @@ test("pet companion snapshot adds mood, care, and personality feedback", () => {
 
   const overdrive = derivePetCompanionSnapshot({
     ...baseContext,
-    petState: "MINING_GPU",
+    petState: "MINING_CPU",
     petStatus: "Overdrive",
     isMining: true,
-    realModeEnabled: true,
-    computeMode: "gpu",
     connectionStatus: "Mining",
     acceptedShares: 3,
     bestDifficulty: 128,
@@ -334,14 +252,14 @@ test("pet companion snapshot adds mood, care, and personality feedback", () => {
     miningUptimeSeconds: 45,
   });
   assert.equal(overdrive.mood, "hyped");
-  assert.equal(overdrive.badges[2][1], "GPU");
+  assert.equal(overdrive.badges[2][1], "CPU");
   assert.equal(overdrive.care.focus.value > resting.care.focus.value, true);
   assert.equal(overdrive.care.bond.value > resting.care.bond.value, true);
 
   const rejected = derivePetCompanionSnapshot({
     ...baseContext,
     petStatus: "Mining",
-    lastEvent: createShareEvent("share_rejected", "simulation", "Rejected"),
+    lastEvent: createShareEvent("share_rejected", "cpu", "Rejected"),
   });
   assert.equal(rejected.reaction, profile.personality.voice.rejected);
 
@@ -357,7 +275,6 @@ test("config normalization shares backend port and worker defaults", () => {
       worker_name: "  ",
     }),
     systemInfo,
-    devices,
   );
 
   assert.equal(knownPool.pool_port, 3333);
@@ -369,7 +286,6 @@ test("config normalization shares backend port and worker defaults", () => {
       pool_port: 21496,
     }),
     systemInfo,
-    devices,
   );
 
   assert.equal(customPool.pool_port, 21496);
@@ -380,97 +296,50 @@ test("config normalization shares backend port and worker defaults", () => {
       pool_port: 0,
     }),
     systemInfo,
-    devices,
   );
 
   assert.equal(invalidPort.pool_port, 3333);
 });
 
 
-test("config normalization keeps external telemetry polling safe", () => {
-  const network = normalizeAppConfig(
+test("config normalization drops removed runtime fields", () => {
+  const normalized = normalizeAppConfig(
     validConfig({
-      external_hash_interface: "network",
-      external_hash_network_host: " bitaxe.local ",
-      external_hash_polling_enabled: true,
-      external_hash_poll_interval_seconds: 7_200,
+      removed_runtime_mode: "accelerated",
+      removed_runtime_port: " COM7 ",
+      removed_runtime_endpoint: " device://miner-2 ",
+      removed_runtime_polling_enabled: true,
     }),
     systemInfo,
-    devices,
-  );
-  const direct = normalizeAppConfig(
-    validConfig({
-      external_hash_interface: "direct",
-      external_hash_direct_port: " COM7 ",
-      external_hash_polling_enabled: true,
-      external_hash_poll_interval_seconds: 1,
-    }),
-    systemInfo,
-    devices,
-  );
-  const futureDirect = normalizeAppConfig(
-    validConfig({
-      external_hash_interface: "direct",
-      external_hash_direct_port: "COM7",
-      external_hash_direct_endpoint: " hid://miner-2 ",
-    }),
-    systemInfo,
-    devices,
   );
 
-  for (const normalized of [network, direct, futureDirect]) {
-    assert.equal(normalized.external_hash_interface, "none");
-    assert.equal(normalized.external_hash_network_host, "");
-    assert.equal(normalized.external_hash_direct_port, "");
-    assert.equal(normalized.external_hash_direct_endpoint, "");
-    assert.equal(normalized.external_hash_polling_enabled, false);
-    assert.equal(normalized.external_hash_poll_interval_seconds, 60);
-  }
+  assert.equal(Object.hasOwn(normalized, "removed_runtime_mode"), false);
+  assert.equal(Object.hasOwn(normalized, "removed_runtime_port"), false);
+  assert.equal(Object.hasOwn(normalized, "removed_runtime_endpoint"), false);
+  assert.equal(Object.hasOwn(normalized, "removed_runtime_polling_enabled"), false);
 });
 
 test("real mining start validation catches local configuration mistakes", () => {
-  assert.equal(realMiningStartError(validConfig(), devices, true), null);
+  assert.equal(realMiningStartError(validConfig()), null);
   assert.equal(
-    realMiningStartError(validConfig({ btc_address: "  " }), devices, true),
+    realMiningStartError(validConfig({ btc_address: "  " })),
     "Add a BTC address before starting real mining.",
   );
   assert.equal(
-    realMiningStartError(validConfig({ pool_host: "https://public-pool.io/path" }), devices, true),
+    realMiningStartError(validConfig({ pool_host: "https://public-pool.io/path" })),
     "Pool host must be a hostname without spaces, URL scheme, or path.",
   );
   assert.equal(
-    realMiningStartError(validConfig({ pool_port: 70000 }), devices, true),
+    realMiningStartError(validConfig({ pool_port: 70000 })),
     "Pool port must be between 1 and 65535.",
   );
   assert.equal(
-    realMiningStartError(validConfig({ pool_password: `${"x".repeat(129)}` }), devices, true),
+    realMiningStartError(validConfig({ pool_password: `${"x".repeat(129)}` })),
     "Pool password must be 128 characters or fewer and cannot contain control characters.",
   );
   assert.equal(
-    realMiningStartError(validConfig({ worker_name: "desk.1" }), devices, true),
+    realMiningStartError(validConfig({ worker_name: "desk.1" })),
     "Worker name may contain only letters, numbers, dashes, and underscores.",
-  );
-  assert.equal(
-    realMiningStartError(
-      validConfig({ compute_mode: "gpu", gpu_enabled: true }),
-      [
-        { id: "auto", name: "Auto", simulated: true },
-        { id: "gpu-1", name: "Software Adapter", simulated: true },
-      ],
-      true,
-    ),
-    "No hardware GPU detected. Switch to CPU mode, or update GPU drivers.",
-  );
-  assert.equal(
-    realMiningStartError(
-      validConfig({ compute_mode: "hybrid", gpu_enabled: true }),
-      [
-        { id: "auto", name: "Auto", simulated: true },
-        { id: "gpu-1", name: "Software Adapter", simulated: true },
-      ],
-      true,
-    ),
-    "No hardware GPU detected. Switch to CPU mode, or update GPU drivers.",
   );
 });
 
@@ -485,31 +354,27 @@ test("share rate helpers explain pool difficulty impact", () => {
 test("pet state derives from unified event and jackpot context", () => {
   const baseContext = {
     isMining: false,
-    realModeEnabled: false,
     isCoolingDown: false,
     attentionEventType: null,
     jackpotPhase: "idle",
-    computeMode: "cpu",
     connectionStatus: "Stopped",
     currentJobId: "",
   };
 
   assert.equal(derivePetState(baseContext), "IDLE");
-  assert.equal(derivePetState({ ...baseContext, isMining: true }), "DREAMING");
+  assert.equal(derivePetState({ ...baseContext, isMining: true }), "MINING_CPU");
   assert.equal(
-    derivePetState({ ...baseContext, isMining: true, realModeEnabled: true, connectionStatus: "Connecting" }),
+    derivePetState({ ...baseContext, isMining: true, connectionStatus: "Connecting" }),
     "MINING_POOL",
   );
   assert.equal(
     derivePetState({
       ...baseContext,
       isMining: true,
-      realModeEnabled: true,
-      computeMode: "gpu",
       currentJobId: "job-1",
       connectionStatus: "Mining",
     }),
-    "MINING_GPU",
+    "MINING_CPU",
   );
   assert.equal(derivePetState({ ...baseContext, attentionEventType: "share_accepted" }), "LUCKY_EVENT");
   assert.equal(derivePetState({ ...baseContext, jackpotPhase: "particles" }), "LUCKY_EVENT");
@@ -531,8 +396,8 @@ test("mining events keep block candidates separate from jackpot UI events", () =
     pool: "public-pool.io:3333",
   };
 
-  const accepted = createShareEvent("share_accepted", "stratum", "Share accepted");
-  const candidate = createBlockCandidateEvent("stratum", block);
+  const accepted = createShareEvent("share_accepted", "cpu", "Share accepted");
+  const candidate = createBlockCandidateEvent("cpu", block);
   const jackpot = createJackpotEvent(block);
 
   assert.equal(accepted.level, "MID_LEVEL");
@@ -550,7 +415,6 @@ test("probability engine exposes display-only luck and ETA", () => {
     acceptedShares: 3,
     rejectedShares: 1,
     miningUptimeSeconds: 3600,
-    realModeEnabled: true,
   });
 
   assert.equal(snapshot.currentDifficulty, 1000);
@@ -573,7 +437,7 @@ test("jackpot sequence advances through the required presentation phases", () =>
     pool: "public-pool.io:3333",
   };
 
-  const sequence = startJackpotSequence(block, true, "stratum");
+  const sequence = startJackpotSequence(block, true, "cpu");
   assert.equal(sequence.phase, "detect");
   assert.equal(nextJackpotPhase("detect"), "pause");
   assert.equal(nextJackpotPhase("pause"), "screen_effect");
@@ -584,25 +448,23 @@ test("jackpot sequence advances through the required presentation phases", () =>
 
 test("mining engine facade owns start stop status calls", async () => {
   const calls = [];
-  const engine = createSimulationEngine({
+  const engine = createCpuMiningEngine({
     prepareStart: () => calls.push("prepare"),
-    startSimulation: () => calls.push("start-sim"),
     startReal: async () => calls.push("start-real"),
-    stopSimulation: () => calls.push("stop-sim"),
     stopReal: async () => calls.push("stop-real"),
     status: (kind) => ({
       kind,
-      petState: "DREAMING",
+      petState: "MINING_CPU",
       running: true,
-      label: "DREAMING",
+      label: "MINING_CPU",
     }),
   });
 
   await engine.start();
   await engine.stop();
 
-  assert.deepEqual(calls, ["prepare", "start-sim", "stop-sim"]);
-  assert.equal(engine.status().kind, "simulation");
+  assert.deepEqual(calls, ["prepare", "start-real", "stop-real"]);
+  assert.equal(engine.status().kind, "cpu");
 });
 
 test("runtime mining profile applies safe automatic density recommendations", () => {
@@ -616,12 +478,9 @@ test("runtime mining profile applies safe automatic density recommendations", ()
     autoApplyAllowed: true,
     protectsLowPowerLane: true,
     opensHighHashBurst: false,
-    externalMiningAllowed: false,
-    targetStepId: "gpu:25",
-    targetStepSummary: "GPU 25% density lane",
-    targetComputeMode: "gpu",
-    targetCpuThreads: 0,
-    targetGpuIntensityPercent: 25,
+    targetStepId: "cpu:4",
+    targetStepSummary: "CPU 4 thread density lane",
+    targetCpuThreads: 4,
     defaultPointRole: "max_efficiency",
     defaultPointHashrate: 220_000_000,
     defaultPointWatts: 12,
@@ -641,19 +500,18 @@ test("runtime mining profile applies safe automatic density recommendations", ()
   };
 
   const profile = resolveRuntimeMiningProfile(
-    validConfig({ compute_mode: "gpu", gpu_enabled: true, gpu_intensity_percent: 75 }),
+    validConfig({ performance_preset: "custom", cpu_threads: 1 }),
     systemInfo,
     recommendation,
   );
 
   assert.equal(profile.appliedRecommendation, true);
   assert.equal(profile.source, "runtime_recommendation");
-  assert.equal(profile.cpuThreads, 0);
-  assert.equal(profile.gpuIntensityPercent, 25);
-  assert.match(profile.reason, /GPU 25% density lane/);
+  assert.equal(profile.cpuThreads, 4);
+  assert.match(profile.reason, /CPU 4 thread density lane/);
 });
 
-test("runtime mining profile keeps manual burst and compute-mode changes out of auto start", () => {
+test("runtime mining profile keeps manual burst out of auto start", () => {
   const baseRecommendation = {
     schemaVersion: 1,
     mode: "manual_burst",
@@ -664,12 +522,9 @@ test("runtime mining profile keeps manual burst and compute-mode changes out of 
     autoApplyAllowed: false,
     protectsLowPowerLane: true,
     opensHighHashBurst: true,
-    externalMiningAllowed: false,
-    targetStepId: "gpu:100",
-    targetStepSummary: "GPU 100% burst",
-    targetComputeMode: "gpu",
-    targetCpuThreads: 0,
-    targetGpuIntensityPercent: 100,
+    targetStepId: "cpu:burst",
+    targetStepSummary: "CPU burst",
+    targetCpuThreads: 8,
     defaultPointRole: "balanced",
     defaultPointHashrate: 220_000_000,
     defaultPointWatts: 12,
@@ -689,19 +544,18 @@ test("runtime mining profile keeps manual burst and compute-mode changes out of 
   };
 
   const manualBurst = resolveRuntimeMiningProfile(
-    validConfig({ compute_mode: "gpu", gpu_enabled: true, gpu_intensity_percent: 25 }),
+    validConfig({ performance_preset: "custom", cpu_threads: 2 }),
     systemInfo,
     baseRecommendation,
   );
-  const computeModeMismatch = resolveRuntimeMiningProfile(
-    validConfig({ compute_mode: "cpu", cpu_threads: 1, performance_preset: "eco" }),
+  const automaticBurst = resolveRuntimeMiningProfile(
+    validConfig({ cpu_threads: 1, performance_preset: "eco" }),
     systemInfo,
     { ...baseRecommendation, mode: "run_density_default", manualApprovalRequired: false, autoApplyAllowed: true, opensHighHashBurst: false },
   );
 
   assert.equal(manualBurst.appliedRecommendation, false);
-  assert.equal(manualBurst.gpuIntensityPercent, 25);
-  assert.equal(computeModeMismatch.appliedRecommendation, false);
-  assert.equal(computeModeMismatch.cpuThreads, 1);
-  assert.match(computeModeMismatch.reason, /targets gpu/i);
+  assert.equal(manualBurst.cpuThreads, 2);
+  assert.equal(automaticBurst.appliedRecommendation, true);
+  assert.equal(automaticBurst.cpuThreads, 8);
 });

@@ -6,7 +6,6 @@
   "worker_name": "btc-lottery-pet",
   "cpu_threads": 1,
   "performance_preset": "eco",
-  "real_mining_enabled": false,
   "enable_notifications": true,
   "notify_on_jackpot": true,
   "notify_on_share_accepted": false,
@@ -14,15 +13,5 @@
   "heartbeat_interval": "off",
   "notification_channel": "local_windows_toast",
   "webhook_url": "",
-  "external_hash_interface": "none",
-  "external_hash_network_host": "",
-  "external_hash_direct_port": "",
-  "external_hash_direct_endpoint": "",
-  "external_hash_polling_enabled": false,
-  "external_hash_poll_interval_seconds": 60,
-  "compute_mode": "cpu",
-  "gpu_enabled": false,
-  "gpu_device_id": null,
-  "gpu_intensity_percent": 10,
   "pet_profile_id": "classic-slot"
 }

@@ -189,12 +189,11 @@ export default function PetDisplay({
       </div>
 
       {displayMode === "compact" && (
-        <div className="mini-stats-line">
-          <span>{compactRuntimeLabel}: {displayedHashrate}</span>
-          <span className="divider">|</span>
-          <span>D: {formatDifficulty(realStats.best_difficulty)}</span>
-          <span className="divider">|</span>
-          <span>B: {blockHeight}</span>
+        <div
+          className="mini-stats-line"
+          title={`Best difficulty ${formatDifficulty(realStats.best_difficulty)} / block ${blockHeight}`}
+        >
+          <span>{compactRuntimeLabel} {displayedHashrate}</span>
         </div>
       )}
     </div>

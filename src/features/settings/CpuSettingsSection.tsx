@@ -27,6 +27,13 @@ interface CpuSettingsSectionProps {
   ) => number;
 }
 
+const performancePresetOptions: Array<{ value: PerformancePreset; label: string }> = [
+  { value: "eco", label: "Eco" },
+  { value: "normal", label: "Normal" },
+  { value: "turbo", label: "Turbo" },
+  { value: "custom", label: "Custom" },
+];
+
 export default function CpuSettingsSection({
   draftConfig,
   setDraftConfig,
@@ -44,6 +51,14 @@ export default function CpuSettingsSection({
   formatHashrate,
   threadsForPreset,
 }: CpuSettingsSectionProps) {
+  const setPerformancePreset = (performancePreset: PerformancePreset) => {
+    setDraftConfig({
+      ...draftConfig,
+      performance_preset: performancePreset,
+      cpu_threads: threadsForPreset(performancePreset, systemInfo, Number(draftConfig.cpu_threads)),
+    });
+  };
+
   return (
     <section id="settings-cpu" className="device-settings-panel settings-section-card" aria-label="CPU settings">
       <div className="settings-section-heading">
@@ -56,25 +71,22 @@ export default function CpuSettingsSection({
         <div><span>SHARES</span><strong>{acceptedShares}</strong><small>{rejectedShares} rejected</small></div>
       </div>
       <div className="form-grid">
-        <label>
+        <div className="settings-field full-width">
           PERFORMANCE PRESET
-          <select
-            value={draftConfig.performance_preset}
-            onChange={(event) => {
-              const performancePreset = event.target.value as PerformancePreset;
-              setDraftConfig({
-                ...draftConfig,
-                performance_preset: performancePreset,
-                cpu_threads: threadsForPreset(performancePreset, systemInfo, Number(draftConfig.cpu_threads)),
-              });
-            }}
-          >
-            <option value="eco">Eco</option>
-            <option value="normal">Normal</option>
-            <option value="turbo">Turbo</option>
-            <option value="custom">Custom</option>
-          </select>
-        </label>
+          <div className="preset-choice-group" role="group" aria-label="Performance preset">
+            {performancePresetOptions.map((option) => (
+              <button
+                aria-pressed={draftConfig.performance_preset === option.value}
+                className={draftConfig.performance_preset === option.value ? "selected" : ""}
+                key={option.value}
+                onClick={() => setPerformancePreset(option.value)}
+                type="button"
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <label>
           CPU THREADS
           <select

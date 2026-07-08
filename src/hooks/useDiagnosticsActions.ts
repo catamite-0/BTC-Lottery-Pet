@@ -1,5 +1,9 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { FrontendDiagnosticSection } from "../contracts/diagnostics";
+import {
+  appendFrontendDevLogSection,
+  withParsedFrontendDiagnosticBodyJson,
+  type FrontendDiagnosticSection,
+} from "../contracts/diagnostics";
 import { parseBackendDiagnosticBridge } from "../domain/diagnosticSnapshotBridge";
 import { formatError } from "../formatting";
 import {
@@ -35,14 +39,11 @@ export function useDiagnosticsActions({
     const backendDiagnosticSnapshot = parseBackendDiagnosticBridge(snapshot);
     return getFrontendDiagnosticSections?.({ backendDiagnosticSnapshot }) ?? [];
   };
-  const structuredFrontendSectionsForSnapshot = (snapshot: string) => frontendSectionsForSnapshot(snapshot)
-    .map((section) => {
-      try {
-        return { ...section, bodyJson: JSON.parse(section.body) };
-      } catch {
-        return section;
-      }
-    });
+  const frontendSectionsWithDevLogForSnapshot = (snapshot: string) =>
+    appendFrontendDevLogSection(
+      frontendSectionsForSnapshot(snapshot),
+      getDevLogSnapshot?.(),
+    );
   const openLogs = async () => {
     setErrorMessage(null);
 
@@ -103,7 +104,8 @@ export function useDiagnosticsActions({
 
     try {
       const snapshot = await getDiagnosticSnapshot();
-      const frontendSections = structuredFrontendSectionsForSnapshot(snapshot);
+      const frontendSections = frontendSectionsWithDevLogForSnapshot(snapshot)
+        .map(withParsedFrontendDiagnosticBodyJson);
       await saveDiagnosticSnapshot(frontendSections);
       setPetLogMessage("Diagnostic snapshot saved.");
     } catch (error) {

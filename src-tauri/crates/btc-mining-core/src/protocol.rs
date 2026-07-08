@@ -1,5 +1,4 @@
 use std::{
-    collections::HashSet,
     io::{self, BufRead, ErrorKind, Read, Write},
     net::TcpStream,
     sync::{
@@ -11,7 +10,7 @@ use std::{
 
 use serde_json::Value;
 
-use crate::{JobTemplate, SharedMiningState};
+use crate::{JobTemplate, PendingShareSubmissions, SharedMiningState};
 
 pub const MAX_STRATUM_LINE_BYTES: usize = 64 * 1024;
 
@@ -48,11 +47,12 @@ pub fn diagnostic_subscribe_result(message: &Value) -> Result<(String, usize), S
         .and_then(Value::as_str)
         .map(str::to_owned)
         .ok_or_else(|| "pool returned an incomplete mining.subscribe response".to_string())?;
+    validate_hex_string(&extranonce1, "extranonce1", None)?;
     let extranonce2_size = result
         .get(2)
         .and_then(Value::as_u64)
         .ok_or_else(|| "pool returned an incomplete mining.subscribe response".to_string())
-        .and_then(|size| validate_extranonce2_size(size as usize))?;
+        .and_then(validate_extranonce2_size)?;
 
     Ok((extranonce1, extranonce2_size))
 }
@@ -105,7 +105,7 @@ pub fn wait_for_diagnostic_job(
     timeout: Duration,
 ) -> Result<(String, f64), String> {
     let shared = Arc::new(SharedMiningState::new(Arc::new(AtomicBool::new(false))));
-    let mut pending_submissions = HashSet::new();
+    let mut pending_submissions = PendingShareSubmissions::default();
     let deadline = Instant::now() + timeout;
 
     loop {
@@ -146,7 +146,7 @@ pub fn handle_server_message_with_logger(
     line: &str,
     protocol: &mut ProtocolState,
     shared: &Arc<SharedMiningState>,
-    pending_submissions: &mut HashSet<u64>,
+    pending_submissions: &mut PendingShareSubmissions,
     mut log: impl FnMut(&str),
 ) -> Result<(), String> {
     handle_server_message_with_callbacks(
@@ -163,7 +163,7 @@ pub fn handle_server_message_with_callbacks(
     line: &str,
     protocol: &mut ProtocolState,
     shared: &Arc<SharedMiningState>,
-    pending_submissions: &mut HashSet<u64>,
+    pending_submissions: &mut PendingShareSubmissions,
     mut log: impl FnMut(&str),
     mut event: impl FnMut(ProtocolEvent),
 ) -> Result<(), String> {
@@ -177,17 +177,31 @@ pub fn handle_server_message_with_callbacks(
     if let Some(method) = message.get("method").and_then(Value::as_str) {
         match method {
             "mining.set_difficulty" => {
-                let difficulty = value_as_f64(&message["params"][0])
+                let difficulty = message
+                    .get("params")
+                    .and_then(Value::as_array)
+                    .and_then(|params| params.first())
+                    .and_then(value_as_f64)
                     .ok_or_else(|| "pool sent an invalid share difficulty".to_string())?;
                 protocol.difficulty = validate_share_difficulty(difficulty)?;
                 log(&format!("Pool set share difficulty: {difficulty}"));
             }
             "mining.set_extranonce" => {
-                protocol.extranonce1 = message["params"][0].as_str().map(str::to_owned);
-                protocol.extranonce2_size = message["params"][1]
+                let params = message
+                    .get("params")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| "pool sent mining.set_extranonce without params".to_string())?;
+                if params.len() < 2 {
+                    return Err("pool sent an incomplete mining.set_extranonce".into());
+                }
+                protocol.extranonce1 =
+                    Some(required_hex_string(params, 0, "extranonce1", None)?);
+                protocol.extranonce2_size = Some(
+                    params[1]
                     .as_u64()
-                    .map(|size| validate_extranonce2_size(size as usize))
-                    .transpose()?;
+                        .ok_or_else(|| "pool sent invalid extranonce2 size".to_string())
+                        .and_then(validate_extranonce2_size)?,
+                );
                 shared.clear_job();
             }
             "mining.notify" => {
@@ -224,11 +238,18 @@ pub fn handle_server_message_with_callbacks(
                     .map(|reason| format!("pool rejected mining.subscribe: {reason}"))
                     .unwrap_or_else(|| "pool returned an invalid mining.subscribe response".into())
             })?;
-        protocol.extranonce1 = result.get(1).and_then(Value::as_str).map(str::to_owned);
+        protocol.extranonce1 = result
+            .get(1)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .map(|extranonce1| {
+                validate_hex_string(&extranonce1, "extranonce1", None).map(|_| extranonce1)
+            })
+            .transpose()?;
         protocol.extranonce2_size = result
             .get(2)
             .and_then(Value::as_u64)
-            .map(|size| validate_extranonce2_size(size as usize))
+            .map(validate_extranonce2_size)
             .transpose()?;
 
         if protocol.extranonce1.is_none() || protocol.extranonce2_size.is_none() {
@@ -254,10 +275,13 @@ pub fn handle_server_message_with_callbacks(
             status: "Authorized".into(),
             message,
         });
-    } else if pending_submissions.remove(&id) {
+    } else if let Some(submission) = pending_submissions.remove(id) {
         if message.get("result").and_then(Value::as_bool) == Some(true) {
             shared.accepted_shares.fetch_add(1, Ordering::Relaxed);
-            let message = "Share accepted!".to_string();
+            let message = format!(
+                "Share accepted: job_id={}, nonce={:08x}",
+                submission.share.job_id, submission.share.nonce
+            );
             log(&message);
             event(ProtocolEvent::ShareAccepted { message });
         } else {
@@ -266,7 +290,10 @@ pub fn handle_server_message_with_callbacks(
                 .get("error")
                 .map(|e| e.to_string())
                 .unwrap_or_else(|| "unknown error".to_string());
-            let message = format!("Share rejected. Reason: {}", err_str);
+            let message = format!(
+                "Share rejected: job_id={}, nonce={:08x}. Reason: {}",
+                submission.share.job_id, submission.share.nonce, err_str
+            );
             log(&message);
             event(ProtocolEvent::ShareRejected { message });
         }
@@ -314,10 +341,11 @@ fn parse_job(
         .ok_or_else(|| "pool sent invalid merkle branches".to_string())?
         .iter()
         .map(|branch| {
-            branch
+            let branch = branch
                 .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| "pool sent a non-string merkle branch".to_string())
+                .ok_or_else(|| "pool sent a non-string merkle branch".to_string())?;
+            validate_hex_string(branch, "merkle branch", Some(32))?;
+            Ok::<String, String>(branch.to_owned())
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -325,7 +353,7 @@ fn parse_job(
         return Err("pool sent too many merkle branches".into());
     }
 
-    let nbits = required_string(params, 6, "nbits")?;
+    let nbits = required_hex_string(params, 6, "nbits", Some(4))?;
     let network_target = btc_hash_cpu::target_from_nbits(&nbits)?;
     let clean_jobs = params[8]
         .as_bool()
@@ -335,14 +363,14 @@ fn parse_job(
         generation: 0,
         clean_jobs,
         job_id: required_string(params, 0, "job id")?,
-        prev_hash: required_string(params, 1, "previous hash")?,
-        coinbase1: required_string(params, 2, "coinbase prefix")?,
-        coinbase2: required_string(params, 3, "coinbase suffix")?,
+        prev_hash: required_hex_string(params, 1, "previous hash", Some(32))?,
+        coinbase1: required_hex_string(params, 2, "coinbase prefix", None)?,
+        coinbase2: required_hex_string(params, 3, "coinbase suffix", None)?,
         merkle_branches,
-        version: required_string(params, 5, "version")?,
+        version: required_hex_string(params, 5, "version", Some(4))?,
         nbits,
         network_target,
-        ntime: required_string(params, 7, "ntime")?,
+        ntime: required_hex_string(params, 7, "ntime", Some(4))?,
         extranonce1,
         extranonce2_size,
         share_difficulty: validate_share_difficulty(protocol.difficulty)?,
@@ -378,6 +406,38 @@ fn required_string(params: &[Value], index: usize, label: &str) -> Result<String
         .ok_or_else(|| format!("pool sent invalid {label}"))
 }
 
+fn required_hex_string(
+    params: &[Value],
+    index: usize,
+    label: &str,
+    expected_bytes: Option<usize>,
+) -> Result<String, String> {
+    let value = required_string(params, index, label)?;
+    validate_hex_string(&value, label, expected_bytes)?;
+    Ok(value)
+}
+
+fn validate_hex_string(
+    value: &str,
+    label: &str,
+    expected_bytes: Option<usize>,
+) -> Result<(), String> {
+    if value.len() % 2 != 0 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(format!("pool sent invalid {label} hex"));
+    }
+
+    if let Some(expected_bytes) = expected_bytes {
+        let actual_bytes = value.len() / 2;
+        if actual_bytes != expected_bytes {
+            return Err(format!(
+                "pool sent {label} as {actual_bytes} bytes, expected {expected_bytes}"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn value_as_f64(value: &Value) -> Option<f64> {
     value
         .as_f64()
@@ -392,7 +452,9 @@ pub fn validate_share_difficulty(difficulty: f64) -> Result<f64, String> {
     Ok(difficulty)
 }
 
-fn validate_extranonce2_size(size: usize) -> Result<usize, String> {
+fn validate_extranonce2_size(size: u64) -> Result<usize, String> {
+    let size = usize::try_from(size)
+        .map_err(|_| "pool sent an unsupported extranonce2 size".to_string())?;
     if size == 0 || size > MAX_EXTRANONCE2_BYTES {
         return Err(format!(
             "pool sent an unsupported extranonce2 size of {size} bytes"

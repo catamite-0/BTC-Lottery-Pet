@@ -7,8 +7,8 @@ pub(crate) use app_adapter::{
 pub(crate) use mining_runtime::{
     block as mining_block, connection as mining_connection, controller as miner,
     diagnostics as mining_diagnostics, events as mining_events, hash as mining_hash,
-    kernel as mining_kernel, log as mining_log, protocol as mining_protocol,
-    state as mining_state, workers as mining_workers,
+    kernel as mining_kernel, log as mining_log, protocol as mining_protocol, state as mining_state,
+    workers as mining_workers,
 };
 
 use std::{fs, path::PathBuf, process::Command};
@@ -563,6 +563,30 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("kernelOptimization"));
+    }
+
+    #[test]
+    fn diagnostic_frontend_section_accepts_tauri_camel_case_body_json() {
+        let section: FrontendDiagnosticSection = serde_json::from_value(serde_json::json!({
+            "title": "Frontend CPU Runtime",
+            "body": "{\"mode\":\"cpu\"}",
+            "bodyJson": {
+                "mode": "cpu"
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(section.body_json.as_ref().unwrap()["mode"], "cpu");
+
+        let payload = diagnostic_save_payload(
+            r#"{"diagnostic_schema_version":3}"#.to_string(),
+            vec![section],
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&payload).unwrap();
+
+        assert_eq!(value["frontend_sections"][0]["body_json"]["mode"], "cpu");
+        assert!(value["frontend_sections"][0].get("bodyJson").is_none());
     }
 
     #[test]

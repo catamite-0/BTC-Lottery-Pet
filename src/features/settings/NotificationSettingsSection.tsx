@@ -10,6 +10,20 @@ interface NotificationSettingsSectionProps {
   setDraftConfig: Dispatch<SetStateAction<AppConfig>>;
 }
 
+const notificationToggles: Array<{
+  field:
+    | "enable_notifications"
+    | "notify_on_jackpot"
+    | "notify_on_share_accepted"
+    | "notify_on_connection_error";
+  label: string;
+}> = [
+  { field: "enable_notifications", label: "Enable notifications" },
+  { field: "notify_on_jackpot", label: "Notify jackpot" },
+  { field: "notify_on_share_accepted", label: "Notify share" },
+  { field: "notify_on_connection_error", label: "Notify error" },
+];
+
 export default function NotificationSettingsSection({
   draftConfig,
   setDraftConfig,
@@ -21,46 +35,19 @@ export default function NotificationSettingsSection({
         <strong>Local alerts and optional webhook</strong>
       </div>
       <div className="form-grid">
-        <label>
-          ENABLE NOTIFICATIONS
-          <select
-            value={draftConfig.enable_notifications ? "true" : "false"}
-            onChange={(event) => setDraftConfig({ ...draftConfig, enable_notifications: event.target.value === "true" })}
-          >
-            <option value="true">Enabled</option>
-            <option value="false">Disabled</option>
-          </select>
-        </label>
-        <label>
-          NOTIFY JACKPOT
-          <select
-            value={draftConfig.notify_on_jackpot ? "true" : "false"}
-            onChange={(event) => setDraftConfig({ ...draftConfig, notify_on_jackpot: event.target.value === "true" })}
-          >
-            <option value="true">Enabled</option>
-            <option value="false">Disabled</option>
-          </select>
-        </label>
-        <label>
-          NOTIFY SHARE
-          <select
-            value={draftConfig.notify_on_share_accepted ? "true" : "false"}
-            onChange={(event) => setDraftConfig({ ...draftConfig, notify_on_share_accepted: event.target.value === "true" })}
-          >
-            <option value="false">Disabled</option>
-            <option value="true">Enabled</option>
-          </select>
-        </label>
-        <label>
-          NOTIFY ERROR
-          <select
-            value={draftConfig.notify_on_connection_error ? "true" : "false"}
-            onChange={(event) => setDraftConfig({ ...draftConfig, notify_on_connection_error: event.target.value === "true" })}
-          >
-            <option value="true">Enabled</option>
-            <option value="false">Disabled</option>
-          </select>
-        </label>
+        {notificationToggles.map((toggle) => (
+          <label className="toggle-field" key={toggle.field}>
+            <span>{toggle.label}</span>
+            <input
+              checked={draftConfig[toggle.field]}
+              onChange={(event) => setDraftConfig({
+                ...draftConfig,
+                [toggle.field]: event.target.checked,
+              })}
+              type="checkbox"
+            />
+          </label>
+        ))}
         <label>
           HEARTBEAT
           <select

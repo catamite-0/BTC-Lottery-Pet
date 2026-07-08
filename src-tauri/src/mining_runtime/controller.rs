@@ -1,5 +1,4 @@
 use std::{
-    collections::HashSet,
     io::{BufReader, ErrorKind},
     net::ToSocketAddrs,
     sync::{
@@ -45,13 +44,17 @@ use crate::mining_settings::{validate_mainnet_address, CpuKernelMode, PoolDiagno
 use crate::mining_state::{
     share_matches_current_job, share_matches_valid_previous_job, JobTemplate,
 };
-use crate::mining_state::{should_submit_share, ShareSubmission, SharedMiningState};
+use crate::mining_state::{
+    should_submit_share, PendingShareSubmission, PendingShareSubmissions, ShareSubmission,
+    SharedMiningState,
+};
 use crate::mining_workers::spawn_hash_workers;
 #[cfg(test)]
 use crate::mining_workers::BestDifficultyTracker;
 
 const MAX_PENDING_SUBMISSIONS: usize = 128;
 const MAX_SHARE_SUBMISSIONS_PER_TICK: usize = 16;
+const PENDING_SHARE_TIMEOUT: Duration = Duration::from_secs(30);
 const SHARE_QUEUE_CAPACITY: usize = 256;
 struct ActiveMiningSession {
     session_id: u64,
@@ -224,7 +227,7 @@ fn run_stratum_connection(
         difficulty: 0.001,
         ..ProtocolState::default()
     };
-    let mut pending_submissions = HashSet::new();
+    let mut pending_submissions = PendingShareSubmissions::default();
     let mut request_id = 10_u64;
     let mut last_report = Instant::now();
     let mut last_hash_count = shared.hashes.load(Ordering::Relaxed);
@@ -238,7 +241,15 @@ fn run_stratum_connection(
             message: "Subscribing to pool".into(),
         },
     );
-    while share_receiver.try_recv().is_ok() {}
+    let drained_shares = drain_share_queue(share_receiver);
+    if drained_shares > 0 {
+        shared.record_stale_share_drops(drained_shares as u64);
+        log_message_for_session(
+            app,
+            session_id,
+            &format!("Dropped {drained_shares} queued share(s) from the previous pool connection"),
+        );
+    }
     write_message(
         &mut stream,
         &json!({
@@ -279,6 +290,10 @@ fn run_stratum_connection(
             debug_hint_logged = true;
         }
 
+        let now = Instant::now();
+        let expired = pending_submissions.prune_expired(now, PENDING_SHARE_TIMEOUT);
+        log_expired_pending_submissions(app, session_id, &expired, now);
+
         for _ in 0..submission_budget(pending_submissions.len()) {
             if shared.stop.load(Ordering::Acquire) {
                 break;
@@ -300,13 +315,7 @@ fn run_stratum_connection(
                 continue;
             }
 
-            request_id += 1;
-
-            // Prune stale entries to prevent unbounded growth from unresponsive pools
-            if pending_submissions.len() > 64 {
-                let threshold = request_id.saturating_sub(64);
-                pending_submissions.retain(|&id| id > threshold);
-            }
+            request_id = request_id.saturating_add(1);
 
             let message = format!(
                 "Share submitted: job_id={}, nonce={:08x}",
@@ -324,15 +333,15 @@ fn run_stratum_connection(
                     "id": request_id,
                     "method": "mining.submit",
                     "params": [
-                        username,
-                        share.job_id,
-                        share.extranonce2,
-                        share.ntime,
+                        &username,
+                        &share.job_id,
+                        &share.extranonce2,
+                        &share.ntime,
                         format!("{:08x}", share.nonce)
                     ]
                 }),
             )?;
-            pending_submissions.insert(request_id);
+            pending_submissions.insert(request_id, share, Instant::now());
         }
 
         match read_stratum_line(&mut reader) {
@@ -394,6 +403,39 @@ fn submission_budget(pending_submissions: usize) -> usize {
     MAX_SHARE_SUBMISSIONS_PER_TICK.min(MAX_PENDING_SUBMISSIONS.saturating_sub(pending_submissions))
 }
 
+fn drain_share_queue(share_receiver: &Receiver<ShareSubmission>) -> usize {
+    let mut drained = 0;
+    while share_receiver.try_recv().is_ok() {
+        drained += 1;
+    }
+    drained
+}
+
+fn log_expired_pending_submissions(
+    app: &AppHandle,
+    session_id: u64,
+    expired: &[PendingShareSubmission],
+    now: Instant,
+) {
+    let Some(first) = expired.first() else {
+        return;
+    };
+
+    let age = first.age_at(now).as_secs();
+    log_message_for_session(
+        app,
+        session_id,
+        &format!(
+            "Timed out {} pending share submission(s); oldest request_id={}, job_id={}, nonce={:08x}, age={}s",
+            expired.len(),
+            first.request_id,
+            first.share.job_id,
+            first.share.nonce,
+            age
+        ),
+    );
+}
+
 fn sleep_until_stopped(stop: &AtomicBool, duration: Duration) {
     let deadline = Instant::now() + duration;
     while !stop.load(Ordering::Acquire) && Instant::now() < deadline {
@@ -404,7 +446,6 @@ fn sleep_until_stopped(stop: &AtomicBool, duration: Duration) {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::HashSet,
         io::{BufRead, BufReader, Cursor, ErrorKind},
         net::{TcpListener, TcpStream},
         sync::{
@@ -419,9 +460,10 @@ mod tests {
         difficulty_from_hash, extranonce2_hex, found_block_event,
         handle_server_message_with_logger, hash_meets_network_target, read_stratum_line,
         target_from_nbits, validate_mainnet_address, validate_share_difficulty, word_swapped_hex,
-        BestDifficultyTracker, CpuKernelMode, JobTemplate, PoolDiagnosticSettings, ProtocolState,
-        RealMiningSettings, SharedMiningState, DIFF_ONE_TARGET, MAX_PENDING_SUBMISSIONS,
-        MAX_SHARE_SUBMISSIONS_PER_TICK, MAX_STRATUM_LINE_BYTES,
+        BestDifficultyTracker, CpuKernelMode, JobTemplate, PendingShareSubmissions,
+        PoolDiagnosticSettings, ProtocolState, RealMiningSettings, SharedMiningState,
+        DIFF_ONE_TARGET, MAX_PENDING_SUBMISSIONS, MAX_SHARE_SUBMISSIONS_PER_TICK,
+        MAX_STRATUM_LINE_BYTES, PENDING_SHARE_TIMEOUT,
     };
     use crate::mining_log::{should_rotate_log, MAX_LOG_FILE_BYTES};
 
@@ -435,15 +477,25 @@ mod tests {
     fn protocol_test_state() -> (
         ProtocolState,
         Arc<SharedMiningState>,
-        HashSet<u64>,
+        PendingShareSubmissions,
         Vec<String>,
     ) {
         (
             ProtocolState::default(),
             Arc::new(SharedMiningState::new(Arc::new(AtomicBool::new(false)))),
-            HashSet::new(),
+            PendingShareSubmissions::default(),
             Vec::new(),
         )
+    }
+
+    fn pending_share(job_id: &str, nonce: u32) -> super::ShareSubmission {
+        super::ShareSubmission {
+            generation: 1,
+            job_id: job_id.into(),
+            extranonce2: "00000001".into(),
+            ntime: "5f5e1000".into(),
+            nonce,
+        }
     }
 
     #[test]
@@ -858,6 +910,40 @@ mod tests {
     }
 
     #[test]
+    fn pending_share_submissions_expire_by_age() {
+        let mut pending = PendingShareSubmissions::default();
+        let now = Instant::now();
+        pending.insert(
+            11,
+            pending_share("job-old", 0),
+            now.checked_sub(PENDING_SHARE_TIMEOUT + Duration::from_secs(1))
+                .unwrap_or(now),
+        );
+        pending.insert(
+            12,
+            pending_share("job-new", 1),
+            now.checked_sub(Duration::from_secs(1)).unwrap_or(now),
+        );
+
+        let expired = pending.prune_expired(now, PENDING_SHARE_TIMEOUT);
+
+        assert_eq!(expired.len(), 1);
+        assert_eq!(expired[0].request_id, 11);
+        assert!(!pending.contains_id(11));
+        assert!(pending.contains_id(12));
+    }
+
+    #[test]
+    fn drains_queued_shares_before_new_pool_connection() {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(4);
+        sender.try_send(pending_share("old-job", 0)).unwrap();
+        sender.try_send(pending_share("old-job", 1)).unwrap();
+
+        assert_eq!(super::drain_share_queue(&receiver), 2);
+        assert_eq!(super::drain_share_queue(&receiver), 0);
+    }
+
+    #[test]
     fn found_block_event_uses_pool_metadata_without_address() {
         let job = JobTemplate {
             generation: 1,
@@ -949,6 +1035,27 @@ mod tests {
     }
 
     #[test]
+    fn rejects_notify_with_invalid_hex_before_worker_dispatch() {
+        let (mut protocol, shared, mut pending_submissions, mut logs) = protocol_test_state();
+        protocol.extranonce1 = Some("abcd".into());
+        protocol.extranonce2_size = Some(4);
+        protocol.difficulty = 0.001;
+
+        let error = handle_server_message_with_logger(
+            r#"{"method":"mining.notify","params":["job-bad","zz","00","00",[],"20000000","1d00ffff","5f5e1000",true]}"#,
+            &mut protocol,
+            &shared,
+            &mut pending_submissions,
+            |message| logs.push(message.to_owned()),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("previous hash"));
+        assert!(shared.job.read().unwrap().is_none());
+        assert!(logs.is_empty());
+    }
+
+    #[test]
     fn surfaces_subscribe_rejection_reason() {
         let (mut protocol, shared, mut pending_submissions, mut logs) = protocol_test_state();
         let error = handle_server_message_with_logger(
@@ -988,7 +1095,7 @@ mod tests {
     #[test]
     fn ignores_unknown_response_ids_without_share_accounting() {
         let (mut protocol, shared, mut pending_submissions, mut logs) = protocol_test_state();
-        pending_submissions.insert(99);
+        pending_submissions.insert(99, pending_share("job-unknown", 0), Instant::now());
 
         handle_server_message_with_logger(
             r#"{"id":42,"result":true,"error":null}"#,
@@ -1001,7 +1108,7 @@ mod tests {
 
         assert_eq!(shared.accepted_shares.load(Ordering::Relaxed), 0);
         assert_eq!(shared.rejected_shares.load(Ordering::Relaxed), 0);
-        assert!(pending_submissions.contains(&99));
+        assert!(pending_submissions.contains_id(99));
         assert!(logs.is_empty());
     }
 
@@ -1108,7 +1215,7 @@ mod tests {
             difficulty: 0.001,
             ..ProtocolState::default()
         };
-        let mut pending_submissions = HashSet::new();
+        let mut pending_submissions = PendingShareSubmissions::default();
         let mut logs = Vec::new();
 
         super::write_message(
@@ -1153,7 +1260,7 @@ mod tests {
         );
         assert_eq!(shared.connection_status.lock().unwrap().as_str(), "Mining");
 
-        pending_submissions.insert(11);
+        pending_submissions.insert(11, pending_share("job-1", 0), Instant::now());
         super::write_message(
             &mut stream,
             &serde_json::json!({
@@ -1181,9 +1288,11 @@ mod tests {
 
         assert_eq!(shared.accepted_shares.load(Ordering::Relaxed), 1);
         assert_eq!(shared.rejected_shares.load(Ordering::Relaxed), 0);
-        assert!(logs.iter().any(|line| line == "Share accepted!"));
+        assert!(logs
+            .iter()
+            .any(|line| line.contains("Share accepted: job_id=job-1")));
 
-        pending_submissions.insert(12);
+        pending_submissions.insert(12, pending_share("job-1", 1), Instant::now());
         super::write_message(
             &mut stream,
             &serde_json::json!({

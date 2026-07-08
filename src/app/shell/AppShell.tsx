@@ -136,12 +136,12 @@ export default function AppShell({
     resourceMetrics,
   } = dashboardViewModel;
   const controlButtonLabel = miningControlPending
-    ? "WAIT"
+    ? "Wait"
     : isCoolingDown
-      ? "COOL"
+      ? "Cool"
       : isMining
-        ? "STOP"
-        : "START";
+        ? "Stop"
+        : "Start";
   const petDisplay = (
     <PetDisplay
       petProfile={activePetProfile}
@@ -158,7 +158,7 @@ export default function AppShell({
   );
   const statusSummary = (
     <div className="status-copy">
-      <p className="label">STATUS</p>
+      <p className="label">Status</p>
       <p className={`status ${statusClassName}`} title={petStatus}>
         {displayStatus}
       </p>
@@ -166,7 +166,7 @@ export default function AppShell({
   );
   const luckMeter = (
     <div className="luck-meter" title="Display-only luck meter">
-      <span>LUCK</span>
+      <span>Luck</span>
       <b>{probabilitySnapshot.luckMeter}%</b>
       <div>
         <i style={{ width: `${probabilitySnapshot.luckMeter}%` }} />

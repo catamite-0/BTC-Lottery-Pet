@@ -20,15 +20,16 @@ mining only. This project does not promise or guarantee any financial return.
   checks.
 - Single-instance protection per app identifier.
 - Rust Stratum v1 client and cancellable SHA-256d CPU hash loop.
-- `Stop` control that signals hash workers to exit immediately.
+- `Stop` control that signals hash workers and waits for backend shutdown to
+  finish.
 - Jackpot / block-candidate detection when a header hash meets the network
   target from the current Stratum job's `nbits`.
 - App log directory file logging with a 1 MiB rotation limit plus timestamped
   `found_block_*.json` files for block candidate events.
 - Optional one-way notifications for jackpot, share accepted, connection
   error, and coarse heartbeat status.
-- Dashboard diagnostic snapshot copy/save with schema version, app version,
-  sanitized config, log path, recent log lines, and latest connection error.
+- Dashboard diagnostic copy/save with schema version, app version, sanitized
+  config, log path, recent log lines, and latest connection error.
 
 BTC Lottery Pet does not hide its process, enable itself at Windows startup,
 accept remote-control commands, or start mining automatically.
@@ -139,31 +140,56 @@ control data.
 
 To keep an untrusted or misconfigured pool from consuming unbounded local
 resources, the client caps each Stratum line at 64 KiB, keeps at most 128
-unanswered share submissions, and sends at most 16 queued shares before
-returning to socket reads. It also rejects non-positive and pathologically low
-share difficulties.
+unanswered share submissions, expires pending share responses after 30 seconds,
+and sends at most 16 queued shares before returning to socket reads. It also
+drains old queued shares before reconnecting, records stale/queued share drops,
+rejects non-positive and pathologically low share difficulties, validates
+Stratum job hex fields before worker dispatch, and discards invalid active jobs
+with an `Invalid Pool Job` runtime event.
 
 Mining logs are event-driven rather than hash-driven. The app logs connection,
 authorization, job, share, stop, warning, and error events; it does not emit UI
-events for every hash or nonce. When `STOP` is clicked, the backend logs
-`Mining stop requested`, sets the stop signal immediately, emits a zero-hashrate
-`Stopped` stats snapshot, and avoids submitting queued shares after the stop
-signal is observed. Worker cleanup continues on the background mining thread so
-the UI is not blocked by worker joins.
+events for every hash or nonce. Mining log payloads carry session IDs, and the
+frontend ignores stale session logs after a newer start. When `STOP` is clicked,
+the backend logs
+`Mining stop requested`, sets the stop signal immediately, stops sending queued
+shares once the signal is observed, waits for the Stratum thread and CPU workers
+to finish, then emits a zero-hashrate `Stopped` stats snapshot. The frontend
+shows the mining control as pending while the stop command is in flight.
 
 Notifications are one-way only. Local Windows notifications and webhooks can be
 triggered by app events, but there is no remote command polling, remote control,
 or inbound webhook listener.
 
-The Dashboard `COPY DIAG` action copies a local diagnostic snapshot to the
-clipboard, and `SAVE DIAG` writes the backend diagnostic JSON to the app log
-folder. It is meant for troubleshooting and intentionally excludes the BTC
-address, pool password, and webhook URL. Recent log lines are redacted against
-the current BTC address, pool password, and webhook URL before export.
+The Dashboard `COPY DIAG` action copies the backend diagnostic JSON followed by
+frontend troubleshooting sections as text. `SAVE DIAG` writes a structured
+diagnostic JSON file; when frontend sections are present, the file is a
+diagnostic bundle with the backend snapshot under `backend_snapshot` and
+frontend sections such as `Frontend CPU Runtime` and `Frontend DEV LOG`. The
+backend snapshot intentionally excludes the BTC address, pool password, and
+webhook URL. Recent backend log lines are redacted against the current BTC
+address, pool password, and webhook URL before export, and the frontend CPU
+runtime section does not include those fields.
 
 The settings panel pool diagnostic is an active connection check. It does not
 mine or submit shares, but it may send the configured public BTC address and
 worker name to the selected Stratum pool during the authorization stage.
+
+## Current Limitations
+
+- Real mining and pool diagnostics require the Tauri desktop app. The browser
+  preview can exercise layout and settings fallback behavior, but it cannot open
+  TCP sockets, mine, run `TEST POOL`, open the log folder, or write diagnostic
+  files.
+- Mining is local CPU-only. There are no GPU, ASIC, remote worker, Stratum v2,
+  TLS, proxy, failover, or profit-switching paths.
+- CPU mining starts only after the user clicks `START`; the app does not mine at
+  startup and has no remote-control listener.
+- Pool preset availability, difficulty policy, and payout behavior are external
+  to this project and must be verified against the pool operator's current
+  documentation.
+- `COPY DIAG` is clipboard text for troubleshooting; use `SAVE DIAG` when a
+  single JSON file or diagnostic bundle is needed for release evidence.
 
 ## Configuration
 
@@ -293,10 +319,10 @@ to show the window again. Use `Quit` from the tray menu to exit the app.
 
 The tray `Open Logs` item and the Dashboard `OPEN LOGS` button open the
 app-specific log folder. The Dashboard `COPY LOG PATH` button copies that
-local log folder path, `COPY DIAG` copies a sanitized diagnostic snapshot, and
-`SAVE DIAG` writes it to the same folder. The regular mining log is
-`mining.log`; if a block candidate is detected, the event is also saved as a
-timestamped `found_block_*.json` file.
+local log folder path, `COPY DIAG` copies the diagnostic text bundle, and
+`SAVE DIAG` writes a diagnostic JSON file or bundle to the same folder. The
+regular mining log is `mining.log`; if a block candidate is detected, the event
+is also saved as a timestamped `found_block_*.json` file.
 
 ## Run And Build Commands
 
@@ -305,7 +331,7 @@ Use exactly one of these commands for the task at hand:
 | Command | Purpose |
 | --- | --- |
 | `.\scripts\dev-env.ps1` | Prints the Git/Node/npm/Cargo paths detected for this checkout and updates PATH for the script process. |
-| `.\scripts\verify.ps1` | Runs the local verification suite, using direct Node fallbacks when npm is not on PATH. Add `-Strict` for release gating. |
+| `.\scripts\verify.ps1` | Runs the local verification suite, using direct Node fallbacks when npm is not on PATH. Add `-Strict` for release gating and `-BuildInstaller` to include the Tauri installer build. |
 | `npm run clean:dev:check` | Previews removal of generated development files without deleting them. |
 | `npm run clean:dev` | Removes generated build outputs, Rust/Tauri target caches, local logs, and temporary artifacts. |
 | `.\scripts\clean-dev.ps1 -WhatIf` | Direct cleanup preview for shells where npm is not on PATH. |
@@ -315,7 +341,8 @@ Use exactly one of these commands for the task at hand:
 | `npm run tauri:build` | Windows NSIS package build for `BTC Lottery Pet`. |
 
 If a Codex or PowerShell session cannot find `git`, `npm`, or `cargo`, start
-with `.\scripts\dev-env.ps1`. The verification script can still run frontend
+with `.\scripts\dev-env.ps1`. The verification script expects dependencies to
+already be installed with `npm install` or `npm ci`; it can still run frontend
 tests and builds through direct Node entrypoints when `node_modules` is present
 and Node is available.
 
@@ -353,8 +380,10 @@ For a browser-only preview of the React UI:
 npm run dev
 ```
 
-Browser previews can exercise the interface and settings UI. CPU mining runs
-only inside the Tauri app because the Rust backend owns network and hashing.
+Browser previews can exercise the interface and settings UI. CPU mining and
+pool diagnostics run only inside the Tauri app because the Rust backend owns
+network and hashing. In the browser preview, `TEST POOL` reports that the
+desktop runtime is required instead of performing a real connection check.
 
 ## Build The Windows Installer
 
@@ -371,18 +400,18 @@ WebView2 runtime is missing from the target computer.
 
 Before each release, verify:
 
-1. `cargo test --manifest-path src-tauri\Cargo.toml` passes, including the
-   compact `nbits` target, mock Stratum pool, and block-candidate event tests.
-2. `cargo clippy --manifest-path src-tauri\Cargo.toml -- -D warnings` passes.
-3. `npm run test:frontend` passes the frontend mining configuration helper
-   tests.
-4. `npm run build` passes TypeScript and Vite production builds.
-5. `npm run tauri:build` produces the Windows executable and installer.
-6. The release executable uses the Windows GUI subsystem and should not open an
+1. `npm ci` installs from the committed lockfile.
+2. `.\scripts\verify.ps1 -Strict` passes. This is the local release gate for
+   production dependency audit, frontend tests, frontend build, Rust tests, and
+   Rust Clippy with `-D warnings`.
+3. `.\scripts\verify.ps1 -Strict -BuildInstaller` or `npm run tauri:build`
+   produces the Windows executable and NSIS installer.
+4. The release executable uses the Windows GUI subsystem and should not open an
    extra black console window. The development command `npm run tauri:dev` can
    still keep its development terminal open; that is expected.
-7. Dashboard `OPEN LOGS` opens the local app log folder, `COPY LOG PATH`
-   copies that folder path, `COPY DIAG` copies sanitized diagnostics, and
-   `SAVE DIAG` writes a diagnostic JSON file.
-8. Complete the manual checks in [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)
-   before tagging or distributing the installer.
+5. Dashboard `OPEN LOGS` opens the local app log folder, `COPY LOG PATH`
+   copies that folder path, `COPY DIAG` copies the diagnostic text bundle, and
+   `SAVE DIAG` writes a diagnostic JSON file or bundle.
+6. Complete the manual checks in [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)
+   before tagging or distributing the installer, and record skipped checks with
+   reasons in the release notes.

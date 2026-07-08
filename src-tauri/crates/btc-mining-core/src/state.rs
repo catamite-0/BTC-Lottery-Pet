@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, RwLock,
@@ -78,6 +79,82 @@ impl ValidPreviousJob {
 
     fn matches_share(&self, share: &ShareSubmission) -> bool {
         self.generation == share.generation && self.job_id == share.job_id
+    }
+}
+
+#[derive(Clone)]
+pub struct PendingShareSubmission {
+    pub request_id: u64,
+    pub share: ShareSubmission,
+    submitted_at: Instant,
+}
+
+impl PendingShareSubmission {
+    fn new(request_id: u64, share: ShareSubmission, submitted_at: Instant) -> Self {
+        Self {
+            request_id,
+            share,
+            submitted_at,
+        }
+    }
+
+    pub fn age_at(&self, now: Instant) -> Duration {
+        now.saturating_duration_since(self.submitted_at)
+    }
+}
+
+#[derive(Default)]
+pub struct PendingShareSubmissions {
+    entries: VecDeque<PendingShareSubmission>,
+}
+
+impl PendingShareSubmissions {
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn insert(&mut self, request_id: u64, share: ShareSubmission, submitted_at: Instant) {
+        self.entries.push_back(PendingShareSubmission::new(
+            request_id,
+            share,
+            submitted_at,
+        ));
+    }
+
+    pub fn remove(&mut self, request_id: u64) -> Option<PendingShareSubmission> {
+        let position = self
+            .entries
+            .iter()
+            .position(|submission| submission.request_id == request_id)?;
+        self.entries.remove(position)
+    }
+
+    pub fn contains_id(&self, request_id: u64) -> bool {
+        self.entries
+            .iter()
+            .any(|submission| submission.request_id == request_id)
+    }
+
+    pub fn prune_expired(
+        &mut self,
+        now: Instant,
+        timeout: Duration,
+    ) -> Vec<PendingShareSubmission> {
+        let mut expired = Vec::new();
+        while self
+            .entries
+            .front()
+            .is_some_and(|submission| submission.age_at(now) >= timeout)
+        {
+            if let Some(submission) = self.entries.pop_front() {
+                expired.push(submission);
+            }
+        }
+        expired
     }
 }
 
@@ -174,6 +251,24 @@ impl SharedMiningState {
             .clear();
     }
 
+    pub fn clear_job_if_generation(&self, generation: u64) -> bool {
+        let mut active_job = self.job.write().unwrap_or_else(|e| e.into_inner());
+        if !active_job
+            .as_ref()
+            .is_some_and(|job| job.generation == generation)
+        {
+            return false;
+        }
+
+        self.job_generation.fetch_add(1, Ordering::AcqRel);
+        *active_job = None;
+        self.valid_previous_jobs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        true
+    }
+
     fn update_previous_job_validity(&self, previous: Option<&JobTemplate>, next: &JobTemplate) {
         let now = Instant::now();
         let mut valid_previous_jobs = self
@@ -230,6 +325,11 @@ impl SharedMiningState {
 
     pub fn record_queued_share_drop(&self) {
         self.queued_shares_dropped.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_stale_share_drops(&self, count: u64) {
+        self.stale_shares_dropped
+            .fetch_add(count, Ordering::Relaxed);
     }
 
     pub fn snapshot(&self, session_id: u64, hashrate: f64) -> MiningStats {
@@ -301,8 +401,6 @@ pub fn should_submit_share(shared: &SharedMiningState, share: &ShareSubmission) 
         return true;
     }
 
-    shared
-        .stale_shares_dropped
-        .fetch_add(1, Ordering::Relaxed);
+    shared.record_stale_share_drops(1);
     false
 }

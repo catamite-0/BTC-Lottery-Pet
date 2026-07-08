@@ -24,12 +24,35 @@ pub fn sha256_midstate(first_block: &[u8; 64]) -> [u32; 8] {
     state
 }
 
-pub fn double_sha256_from_midstate(
-    midstate: &[u32; 8],
-    tail: &[u32; 3],
-    nonce: u32,
-) -> [u8; 32] {
+pub fn double_sha256_from_midstate(midstate: &[u32; 8], tail: &[u32; 3], nonce: u32) -> [u8; 32] {
     ReusableMidstateHasher::new(tail).double_sha256(midstate, nonce)
+}
+
+fn double_sha256_80_words(header: &[u8; 80]) -> [u32; 8] {
+    let first_block: &[u8; 64] = header[0..64]
+        .try_into()
+        .expect("80-byte header contains a complete first SHA-256 block");
+    let mut first_digest = sha256_midstate(first_block);
+
+    let mut second_block = [0u8; 64];
+    second_block[0..16].copy_from_slice(&header[64..80]);
+    second_block[16] = 0x80;
+    second_block[56..64].copy_from_slice(&640_u64.to_be_bytes());
+    compress_sha256_block(&mut first_digest, &second_block);
+
+    let mut final_block = [0u8; 64];
+    for (chunk, word) in final_block[0..32]
+        .chunks_exact_mut(4)
+        .zip(first_digest.iter())
+    {
+        chunk.copy_from_slice(&word.to_be_bytes());
+    }
+    final_block[32] = 0x80;
+    final_block[56..64].copy_from_slice(&256_u64.to_be_bytes());
+
+    let mut final_digest = H_INIT;
+    compress_sha256_block(&mut final_digest, &final_block);
+    final_digest
 }
 
 pub struct ReusableMidstateHasher {
@@ -95,8 +118,13 @@ pub fn cpu_kernel_hash_words(
         CpuKernelMode::Midstate => midstate_hasher.double_sha256_words(&work.midstate, nonce),
         CpuKernelMode::FullHeader => {
             header[76..80].copy_from_slice(&nonce.to_le_bytes());
-            let hash = double_sha256(header);
-            target_bytes_to_words(&hash)
+            match <&[u8; 80]>::try_from(&*header) {
+                Ok(header) => double_sha256_80_words(header),
+                Err(_) => {
+                    let hash = double_sha256(header);
+                    target_bytes_to_words(&hash)
+                }
+            }
         }
     }
 }
@@ -156,16 +184,25 @@ pub fn benchmark_header_hash_paths(
         ));
     }
 
+    let header: &[u8; 80] = header.try_into().map_err(|_| {
+        format!(
+            "header hash benchmark requires an 80-byte header, got {}",
+            header.len()
+        )
+    })?;
     let work = header_work_from_header(header)?;
     let equivalence_checksum = verify_header_hash_window(header, &work, nonce_count)?;
 
-    let mut candidate = header.to_vec();
+    let mut candidate = *header;
     let full_header_start = Instant::now();
     let mut full_header_checksum = 0_u64;
     for nonce in 0..nonce_count {
         candidate[76..80].copy_from_slice(&nonce.to_le_bytes());
-        full_header_checksum =
-            mix_hash_checksum(full_header_checksum, nonce, &double_sha256(&candidate));
+        full_header_checksum = mix_hash_words_checksum(
+            full_header_checksum,
+            nonce,
+            &double_sha256_80_words(&candidate),
+        );
     }
     let full_header_elapsed = full_header_start.elapsed();
 
@@ -174,8 +211,7 @@ pub fn benchmark_header_hash_paths(
     let mut midstate_checksum = 0_u64;
     for nonce in 0..nonce_count {
         let hash_words = midstate_hasher.double_sha256_words(&work.midstate, nonce);
-        let hash = hash_words_to_bytes(&hash_words);
-        midstate_checksum = mix_hash_checksum(midstate_checksum, nonce, &hash);
+        midstate_checksum = mix_hash_words_checksum(midstate_checksum, nonce, &hash_words);
     }
     let midstate_elapsed = midstate_start.elapsed();
 
@@ -236,6 +272,16 @@ fn mix_hash_checksum(current: u64, nonce: u32, hash: &[u8; 32]) -> u64 {
     mixed
 }
 
+fn mix_hash_words_checksum(current: u64, nonce: u32, hash_words: &[u32; 8]) -> u64 {
+    let mut mixed = current.rotate_left(7) ^ nonce as u64;
+    for chunk in hash_words.chunks_exact(2) {
+        let pair = ((chunk[0] as u64) << 32) | chunk[1] as u64;
+        mixed ^= pair;
+        mixed = mixed.rotate_left(11).wrapping_mul(0x9E37_79B1_85EB_CA87);
+    }
+    mixed
+}
+
 fn benchmark_hashrate(nonce_count: u32, elapsed: Duration) -> f64 {
     let seconds = elapsed.as_secs_f64();
     if seconds > 0.0 {
@@ -289,7 +335,19 @@ pub fn target_from_nbits(nbits: &str) -> Result<[u8; 32], String> {
     }
 
     if exponent > 32 {
-        return Err("pool sent a compact target above uint256".into());
+        let overflow_bytes = exponent - 32;
+        let checked_prefix = overflow_bytes.min(mantissa.len());
+        if mantissa[..checked_prefix].iter().any(|byte| *byte != 0) {
+            return Err("pool sent a compact target above uint256".into());
+        }
+
+        if overflow_bytes >= mantissa.len() {
+            return Ok(target);
+        }
+
+        let kept = &mantissa[overflow_bytes..];
+        target[0..kept.len()].copy_from_slice(kept);
+        return Ok(target);
     }
 
     let start = 32 - exponent;
@@ -515,7 +573,27 @@ mod tests {
     }
 
     fn block_hash_hex(hash: &[u8; 32]) -> String {
-        hash.iter().rev().map(|byte| format!("{byte:02x}")).collect()
+        hash.iter()
+            .rev()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    fn decode_32(value: &str) -> [u8; 32] {
+        hex::decode(value)
+            .expect("test value must be valid hex")
+            .try_into()
+            .expect("test value must be 32 bytes")
+    }
+
+    fn hash_bytes_from_display_hex(value: &str) -> [u8; 32] {
+        let mut bytes = decode_32(value);
+        bytes.reverse();
+        bytes
+    }
+
+    fn target_words_hex(words: &[u32; 8]) -> String {
+        words.iter().map(|word| format!("{word:08x}")).collect()
     }
 
     #[test]
@@ -567,5 +645,184 @@ mod tests {
                 assert_eq!(midstate_hash, full_hash, "case {case}, nonce {nonce}");
             }
         }
+    }
+
+    #[test]
+    fn specialized_header_hash_matches_generic_double_sha256() {
+        let mut header = decode_header(GENESIS_HEADER);
+        let work = header_work_from_header(&header).expect("genesis header should build work");
+        let mut hasher = ReusableMidstateHasher::new(&work.tail);
+
+        for nonce in [0, 1, 2, 255, 65_535, 1_000_003, u32::MAX] {
+            header[76..80].copy_from_slice(&nonce.to_le_bytes());
+
+            let specialized_words = double_sha256_80_words(&header);
+            assert_eq!(
+                hash_words_to_bytes(&specialized_words),
+                double_sha256(&header),
+                "nonce {nonce}"
+            );
+
+            let mut midstate_header = header.to_vec();
+            let midstate_words = cpu_kernel_hash_words(
+                CpuKernelMode::Midstate,
+                &mut midstate_header,
+                &work,
+                &mut hasher,
+                nonce,
+            );
+
+            let mut full_header = header.to_vec();
+            let full_header_words = cpu_kernel_hash_words(
+                CpuKernelMode::FullHeader,
+                &mut full_header,
+                &work,
+                &mut hasher,
+                nonce,
+            );
+
+            assert_eq!(midstate_words, full_header_words, "nonce {nonce}");
+            assert_eq!(specialized_words, full_header_words, "nonce {nonce}");
+        }
+    }
+
+    #[test]
+    fn compact_nbits_expands_consensus_targets() {
+        assert_eq!(
+            hex::encode(target_from_nbits("1d00ffff").unwrap()),
+            "00000000ffff0000000000000000000000000000000000000000000000000000"
+        );
+
+        let mut exponent_three = [0_u8; 32];
+        exponent_three[30] = 0xff;
+        exponent_three[31] = 0xff;
+        assert_eq!(target_from_nbits("0300ffff").unwrap(), exponent_three);
+
+        let mut exponent_two = [0_u8; 32];
+        exponent_two[31] = 0xff;
+        assert_eq!(target_from_nbits("0200ffff").unwrap(), exponent_two);
+
+        let mut exponent_thirty_three = [0_u8; 32];
+        exponent_thirty_three[0] = 0x01;
+        exponent_thirty_three[1] = 0x23;
+        assert_eq!(
+            target_from_nbits("21000123").unwrap(),
+            exponent_thirty_three
+        );
+
+        let mut exponent_thirty_four = [0_u8; 32];
+        exponent_thirty_four[0] = 0x01;
+        assert_eq!(target_from_nbits("22000001").unwrap(), exponent_thirty_four);
+
+        assert_eq!(target_from_nbits("23000000").unwrap(), [0_u8; 32]);
+    }
+
+    #[test]
+    fn compact_nbits_rejects_negative_and_overflow_targets() {
+        assert!(target_from_nbits("1d80ffff").is_err());
+        assert!(target_from_nbits("21010000").is_err());
+        assert!(target_from_nbits("22000100").is_err());
+        assert!(target_from_nbits("not-hex").is_err());
+        assert!(target_from_nbits("1d00ff").is_err());
+    }
+
+    #[test]
+    fn difficulty_target_words_match_compact_diff_one() {
+        let compact_target = target_from_nbits("1d00ffff").unwrap();
+        let diff_one_target = difficulty_to_target_words(1.0);
+
+        assert_eq!(diff_one_target, target_bytes_to_words(&compact_target));
+        assert_eq!(
+            target_words_hex(&diff_one_target),
+            "00000000ffff0000000000000000000000000000000000000000000000000000"
+        );
+
+        assert_eq!(difficulty_to_target_words(0.0), [u32::MAX; 8]);
+        assert_eq!(difficulty_to_target_words(f64::INFINITY), [u32::MAX; 8]);
+        assert_eq!(difficulty_to_target_words(f64::NAN), [u32::MAX; 8]);
+        assert_eq!(difficulty_to_target_words(1e-30), [u32::MAX; 8]);
+    }
+
+    #[test]
+    fn difficulty_from_hash_reports_expected_diff_one_boundary() {
+        let diff_one_hash = hash_bytes_from_display_hex(
+            "00000000ffff0000000000000000000000000000000000000000000000000000",
+        );
+        let difficulty = difficulty_from_hash(&diff_one_hash);
+
+        assert!((difficulty - 1.0).abs() < f64::EPSILON);
+        assert_eq!(difficulty_from_hash(&[0; 32]), DIFF_ONE_TARGET);
+    }
+
+    #[test]
+    fn word_target_comparison_matches_byte_target_comparison() {
+        let target = target_from_nbits("1d00ffff").unwrap();
+        let target_words = target_bytes_to_words(&target);
+        let display_hashes = [
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "00000000fffeffff000000000000000000000000000000000000000000000000",
+            "00000000ffff0000000000000000000000000000000000000000000000000000",
+            "0000000100000000000000000000000000000000000000000000000000000000",
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        ];
+
+        for display_hash in display_hashes {
+            let hash = hash_bytes_from_display_hex(display_hash);
+            let hash_words = target_bytes_to_words(&hash);
+
+            assert_eq!(
+                hash_words_meet_target_words(&hash_words, &target_words),
+                hash_meets_network_target(&hash, &target),
+                "{display_hash}"
+            );
+        }
+    }
+
+    #[test]
+    fn three_target_word_comparison_matches_individual_checks() {
+        let easy_target = difficulty_to_target_words(0.5);
+        let diff_one_target = difficulty_to_target_words(1.0);
+        let hard_target = difficulty_to_target_words(2.0);
+        let hash = hash_bytes_from_display_hex(
+            "00000000ffff0000000000000000000000000000000000000000000000000000",
+        );
+        let hash_words = target_bytes_to_words(&hash);
+
+        assert_eq!(
+            hash_words_meet_three_targets(
+                &hash_words,
+                &easy_target,
+                &diff_one_target,
+                &hard_target,
+            ),
+            [
+                hash_words_meet_target_words(&hash_words, &easy_target),
+                hash_words_meet_target_words(&hash_words, &diff_one_target),
+                hash_words_meet_target_words(&hash_words, &hard_target),
+            ]
+        );
+    }
+
+    #[test]
+    fn word_checksum_matches_byte_checksum() {
+        let header = decode_header(GENESIS_HEADER);
+        let hash = double_sha256(&header);
+        let hash_words = target_bytes_to_words(&hash);
+
+        assert_eq!(
+            mix_hash_words_checksum(0x1234_5678_9abc_def0, 42, &hash_words),
+            mix_hash_checksum(0x1234_5678_9abc_def0, 42, &hash)
+        );
+    }
+
+    #[test]
+    fn benchmark_rejects_invalid_windows() {
+        let header = decode_header(GENESIS_HEADER);
+
+        assert!(benchmark_header_hash_paths(&header, 0).is_err());
+        assert!(
+            benchmark_header_hash_paths(&header, MAX_HEADER_HASH_BENCHMARK_NONCES + 1).is_err()
+        );
+        assert!(benchmark_header_hash_paths(&header[..79], 1).is_err());
     }
 }

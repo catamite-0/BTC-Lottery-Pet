@@ -23,29 +23,32 @@ export default function Header({
       </div>
       <div className="header-actions">
         <button
+          aria-label={displayMode === "compact" ? "Switch to dashboard view" : "Switch to widget view"}
           className={`mode-button ${displayMode === "detail" ? "armed" : ""}`}
           onClick={() => setDisplayMode((mode) => (mode === "compact" ? "detail" : "compact"))}
           title={displayMode === "compact" ? "Switch to dashboard view" : "Switch to widget view"}
           type="button"
         >
-          {displayMode === "compact" ? "DASHBOARD" : "WIDGET"}
+          {displayMode === "compact" ? "Dashboard" : "Widget"}
         </button>
         <button
+          aria-pressed={alwaysOnTop}
           className={`pin-button ${alwaysOnTop ? "active" : ""}`}
           onClick={toggleAlwaysOnTop}
           title="Toggle always on top"
           type="button"
         >
-          {alwaysOnTop ? "PIN" : "FREE"}
+          {alwaysOnTop ? "Pinned" : "Float"}
         </button>
         <button
+          aria-label="Open settings"
           className="settings-button"
           disabled={settingsDisabled}
           onClick={openSettings}
           title={settingsDisabled ? "Stop mining before changing settings" : "Open settings"}
           type="button"
         >
-          SETTINGS
+          Settings
         </button>
       </div>
     </header>

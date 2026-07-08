@@ -11,12 +11,14 @@ use std::{
 use tauri::AppHandle;
 
 use crate::mining_block::record_block_candidate;
+use crate::mining_events::{emit_runtime_event, MiningRuntimeEvent};
 use crate::mining_hash::{
     build_header, build_header_work, cpu_kernel_hash_words, difficulty_from_hash, extranonce2_hex,
     found_block_event, header_work_from_header,
 };
+use crate::mining_log::log_message_for_session;
 use crate::mining_settings::{selected_cpu_kernel_mode, CpuKernelMode, RealMiningSettings};
-use crate::mining_state::{ShareSubmission, SharedMiningState};
+use crate::mining_state::{JobTemplate, ShareSubmission, SharedMiningState};
 
 pub(crate) use btc_mining_core::BestDifficultyTracker;
 
@@ -67,7 +69,11 @@ pub(crate) fn spawn_hash_workers(
                 })
             }) {
             Ok(handle) => workers.push(handle),
-            Err(e) => eprintln!("[ERROR] failed to start hash worker: {e}"),
+            Err(error) => log_message_for_session(
+                app,
+                session_id,
+                &format!("Failed to start hash worker {worker_index}: {error}"),
+            ),
         }
     }
 
@@ -86,6 +92,7 @@ fn hash_loop(context: HashWorkerContext) {
         cpu_kernel_mode,
     } = context;
     let mut best_tracker = BestDifficultyTracker::new(&shared);
+    let mut queue_full_drops = 0_u64;
 
     while !shared.stop.load(Ordering::Acquire) {
         let Some(job) = shared.job.read().unwrap_or_else(|e| e.into_inner()).clone() else {
@@ -104,22 +111,25 @@ fn hash_loop(context: HashWorkerContext) {
             let (mut header, header_work) = match cpu_kernel_mode {
                 CpuKernelMode::Midstate => match build_header_work(&job, &extranonce2) {
                     Ok(work) => (Vec::new(), work),
-                    Err(_) => {
-                        shared.set_connection_status("Invalid pool job");
-                        shared.clear_job();
+                    Err(error) => {
+                        discard_invalid_job(&shared, &app, session_id, &job, error);
                         break;
                     }
                 },
                 CpuKernelMode::FullHeader => {
-                    let Ok(header) = build_header(&job, &extranonce2) else {
-                        shared.set_connection_status("Invalid pool job");
-                        shared.clear_job();
-                        break;
+                    let header = match build_header(&job, &extranonce2) {
+                        Ok(header) => header,
+                        Err(error) => {
+                            discard_invalid_job(&shared, &app, session_id, &job, error);
+                            break;
+                        }
                     };
-                    let Ok(work) = header_work_from_header(&header) else {
-                        shared.set_connection_status("Invalid pool job");
-                        shared.clear_job();
-                        break;
+                    let work = match header_work_from_header(&header) {
+                        Ok(work) => work,
+                        Err(error) => {
+                            discard_invalid_job(&shared, &app, session_id, &job, error);
+                            break;
+                        }
                     };
                     (header, work)
                 }
@@ -196,9 +206,22 @@ fn hash_loop(context: HashWorkerContext) {
 
                     match share_sender.try_send(submission) {
                         Ok(()) => {}
-                        Err(TrySendError::Full(_)) => {
+                        Err(TrySendError::Full(submission)) => {
                             shared.record_queued_share_drop();
-                            eprintln!("[WARN] share queue full - share dropped");
+                            queue_full_drops = queue_full_drops.saturating_add(1);
+                            if queue_full_drops == 1 || queue_full_drops.is_power_of_two() {
+                                log_message_for_session(
+                                    &app,
+                                    session_id,
+                                    &format!(
+                                        "Share queue full; dropped share job_id={}, nonce={:08x} on worker {} (worker drops={})",
+                                        submission.job_id,
+                                        submission.nonce,
+                                        worker_index,
+                                        queue_full_drops
+                                    ),
+                                );
+                            }
                         }
                         Err(TrySendError::Disconnected(_)) => return,
                     }
@@ -216,4 +239,31 @@ fn hash_loop(context: HashWorkerContext) {
             extranonce_counter = extranonce_counter.wrapping_add(worker_count as u64);
         }
     }
+}
+
+fn discard_invalid_job(
+    shared: &SharedMiningState,
+    app: &AppHandle,
+    session_id: u64,
+    job: &JobTemplate,
+    error: String,
+) {
+    if !shared.clear_job_if_generation(job.generation) {
+        return;
+    }
+
+    shared.set_connection_status("Invalid pool job");
+    let message = format!(
+        "Invalid pool job discarded: job_id={}, error={error}",
+        job.job_id
+    );
+    log_message_for_session(app, session_id, &message);
+    emit_runtime_event(
+        app,
+        session_id,
+        MiningRuntimeEvent::ConnectionStatusChanged {
+            status: "Invalid Pool Job".into(),
+            message,
+        },
+    );
 }

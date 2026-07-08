@@ -4,7 +4,8 @@
 
 ### Changed
 
-- Narrowed the project to simulation plus explicitly confirmed real CPU mining.
+- Narrowed the project to the desktop pet plus explicitly confirmed real CPU
+  mining.
 - Removed non-CPU compute paths, remote hash planning layers, related settings,
   diagnostics, tests, dependencies, and stale documentation.
 - Simplified settings into pet, device summary, pool/CPU runtime, diagnostics,
@@ -12,6 +13,12 @@
 - Replaced the previous algorithm evidence dashboard with a small CPU runtime
   snapshot focused on configured threads, observed rate, shares, and active
   hash route.
+- Refined Dashboard and Settings presentation with grouped metric panels,
+  sentence-case controls, segmented CPU presets, checkbox notification toggles,
+  and in-settings pet previews.
+- Clarified release documentation for browser preview limits, desktop-only pool
+  diagnostics, diagnostic copy/save formats, release-gating commands, and the
+  current CPU-only limitation set.
 
 ### Hardened
 
@@ -20,6 +27,18 @@
 - Backend diagnostics no longer expose removed compute device fields.
 - Legacy config keys for removed compute paths are ignored instead of surfaced
   back into active UI or command DTOs.
+- CPU hash tests now cover the specialized 80-byte full-header path, midstate
+  equivalence, compact `nbits` edge cases, target word comparisons, and
+  benchmark window validation.
+- Stratum parsing validates job hex fields before worker dispatch and surfaces
+  invalid active jobs through logs and an `Invalid Pool Job` runtime event.
+- Share submission tracking now records job/nonce metadata, expires unanswered
+  submissions after 30 seconds, drains old queued shares on reconnect, and logs
+  queue-full drops without unbounded pending state.
+- Mining logs are session-scoped on the frontend so stale session log payloads
+  are ignored after a newer start.
+- Diagnostic save bundles preserve structured frontend `bodyJson` data and can
+  include the current frontend dev log.
 
 ### Validation
 

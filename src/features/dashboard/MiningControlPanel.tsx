@@ -22,7 +22,7 @@ export default function MiningControlPanel({
   return (
     <section className={`mining-control-panel ${variant}`} aria-label="Mining controls">
       <div className="control-readout">
-        <span>HASHRATE</span>
+        <span>Hashrate</span>
         <strong>{displayedHashrate}</strong>
       </div>
       <div className="control-status-grid">
@@ -30,8 +30,14 @@ export default function MiningControlPanel({
         {luckMeter}
       </div>
       <div className="control-context">
-        <span title={poolStatus}>{poolStatus}</span>
-        <span title={jobStatus}>{jobStatus}</span>
+        <span title={poolStatus}>
+          <b>Pool</b>
+          {poolStatus}
+        </span>
+        <span title={jobStatus}>
+          <b>Job</b>
+          {jobStatus}
+        </span>
       </div>
       {controlButton}
     </section>

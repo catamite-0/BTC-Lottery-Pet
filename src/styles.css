@@ -1703,8 +1703,8 @@ footer > span:not(.dot):not(.cpu) {
   box-shadow: inset 0 0 0 1px var(--pet-option-glow);
 }
 
-.pet-profile-option b,
-.pet-profile-option small {
+.pet-profile-copy b,
+.pet-profile-copy small {
   display: block;
   min-width: 0;
   overflow: hidden;
@@ -1712,11 +1712,11 @@ footer > span:not(.dot):not(.cpu) {
   white-space: nowrap;
 }
 
-.pet-profile-option b {
+.pet-profile-copy b {
   font-size: 9px;
 }
 
-.pet-profile-option small {
+.pet-profile-copy small {
   color: #98a3b2;
   font-size: 7px;
   margin-top: 2px;
@@ -3129,4 +3129,1775 @@ footer > span:not(.dot):not(.cpu) {
   .app-footer span:nth-child(3) {
     display: none;
   }
+}
+
+/* Focused UI layout tuning */
+.topbar {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.topbar > div:first-child {
+  min-width: 0;
+}
+
+.topbar h1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.mode-button,
+.pin-button,
+.topbar .settings-button {
+  min-height: 28px;
+}
+
+.widget-view {
+  align-content: center;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.pet-shell.widget .pet-display-stack {
+  width: min(100%, 286px);
+}
+
+.pet-shell.widget .pet-machine-container {
+  width: min(100%, 260px);
+}
+
+.pet-shell.widget .pet-machine {
+  height: clamp(112px, 34dvh, 148px);
+  width: clamp(162px, 58vw, 198px);
+}
+
+.pet-shell.widget .pet-shape-cyber-console .pet-machine {
+  width: clamp(168px, 62vw, 208px);
+}
+
+.pet-shell.widget .pet-shape-fortune-arcade .pet-machine {
+  width: clamp(156px, 56vw, 188px);
+}
+
+.mining-control-panel.widget {
+  width: min(100%, 292px);
+}
+
+.mining-control-panel.widget .control-status-grid {
+  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr) minmax(98px, 0.75fr);
+}
+
+.pet-shell.widget .luck-meter {
+  grid-template-columns: auto auto minmax(44px, 1fr);
+}
+
+.pet-shell.widget .luck-meter div {
+  width: 100%;
+}
+
+.mini-stats-line {
+  min-width: 0;
+  width: 100%;
+}
+
+.mini-stats-line span:not(.divider) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-view {
+  gap: 12px;
+  padding: 2px 4px 4px 0;
+}
+
+.dashboard-command-row {
+  grid-template-columns: minmax(228px, 0.86fr) minmax(288px, 1.14fr);
+}
+
+.dashboard-pet-panel,
+.mining-control-panel,
+.dashboard-primary-metrics article,
+.dashboard-secondary-metrics,
+.dashboard-connection-panel,
+.dashboard-resource-panel,
+.dashboard-log-panel {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+.mining-control-panel.dashboard {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.control-readout {
+  align-content: center;
+  display: grid;
+  min-height: 62px;
+}
+
+.control-status-grid {
+  grid-template-columns: minmax(0, 1.05fr) minmax(124px, 0.95fr);
+}
+
+.control-context {
+  align-self: end;
+}
+
+.dashboard-metrics-panel {
+  align-items: stretch;
+  grid-template-areas:
+    "primary secondary connection"
+    "primary resource resource";
+  grid-template-columns: minmax(258px, 1.05fr) minmax(184px, 0.8fr) minmax(184px, 0.8fr);
+}
+
+.dashboard-primary-metrics {
+  grid-area: primary;
+}
+
+.dashboard-secondary-metrics {
+  grid-area: secondary;
+}
+
+.dashboard-connection-panel {
+  grid-area: connection;
+}
+
+.dashboard-resource-panel {
+  grid-area: resource;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+}
+
+.dashboard-primary-metrics article {
+  min-height: 74px;
+}
+
+.dashboard-secondary-metrics,
+.dashboard-connection-panel,
+.dashboard-resource-panel {
+  min-height: 74px;
+}
+
+.dashboard-log-panel {
+  position: sticky;
+  bottom: 0;
+}
+
+.log-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.pet-machine-container,
+.pet-machine,
+.pet-companion-panel {
+  max-width: 100%;
+}
+
+.pet-shell.dashboard .pet-care-meters {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.pet-speech span,
+.pet-profile-summary small {
+  overflow-wrap: anywhere;
+}
+
+.settings-panel {
+  max-width: min(980px, calc(100vw - 16px));
+}
+
+.settings-section-tabs {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.settings-content {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 10px 10px 66px;
+}
+
+.settings-section-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 48%),
+    rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  margin: 0;
+  min-width: 0;
+  padding: 10px;
+}
+
+.device-settings-panel,
+.pet-settings-panel,
+.diagnostics-settings-panel {
+  margin: 0;
+}
+
+.settings-section-heading {
+  min-width: 0;
+}
+
+.settings-section-heading strong {
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.form-grid {
+  gap: 8px;
+}
+
+.settings-field,
+.toggle-field {
+  color: #8c929d;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  min-width: 0;
+  text-transform: uppercase;
+}
+
+.form-grid .toggle-field {
+  grid-column: auto;
+}
+
+.preset-choice-group {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 4px;
+}
+
+.preset-choice-group button {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #c9d1dc;
+  font-size: 9px;
+  font-weight: 800;
+  min-height: 28px;
+  min-width: 0;
+  padding: 5px 6px;
+  text-transform: uppercase;
+}
+
+.preset-choice-group button.selected,
+.preset-choice-group button[aria-pressed="true"] {
+  background: rgba(247, 147, 26, 0.14);
+  border-color: rgba(247, 147, 26, 0.58);
+  color: #ffd35a;
+}
+
+.toggle-field {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 34px;
+  padding: 7px 8px;
+}
+
+.toggle-field span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toggle-field input[type="checkbox"] {
+  appearance: none;
+  background: #252b35;
+  border: 1px solid #3b4658;
+  border-radius: 999px;
+  display: block;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  position: relative;
+  width: 34px;
+}
+
+.toggle-field input[type="checkbox"]::before {
+  background: #8f9aaa;
+  border-radius: 50%;
+  content: "";
+  height: 12px;
+  left: 2px;
+  position: absolute;
+  top: 2px;
+  transition: transform 160ms ease, background 160ms ease;
+  width: 12px;
+}
+
+.toggle-field input[type="checkbox"]:checked {
+  background: rgba(247, 147, 26, 0.18);
+  border-color: rgba(247, 147, 26, 0.64);
+}
+
+.toggle-field input[type="checkbox"]:checked::before {
+  background: #ffd35a;
+  transform: translateX(16px);
+}
+
+.diagnostics-settings-panel .benchmark-row {
+  margin: 8px 0 0;
+}
+
+.pet-profile-picker {
+  grid-template-columns: repeat(auto-fit, minmax(172px, 1fr));
+}
+
+.pet-profile-option {
+  min-height: 48px;
+}
+
+@media (max-width: 980px) {
+  .dashboard-metrics-panel {
+    grid-template-areas:
+      "primary primary"
+      "secondary connection"
+      "resource resource";
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .dashboard-command-row {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-metrics-panel {
+    grid-template-areas:
+      "primary"
+      "secondary"
+      "connection"
+      "resource";
+    grid-template-columns: 1fr;
+  }
+
+  .settings-content {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .settings-section-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .mining-control-panel.dashboard .control-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .preset-choice-group {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pet-shell.dashboard .pet-care-meters {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 440px) {
+  .topbar {
+    grid-template-columns: 1fr;
+  }
+
+  .header-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .mode-button,
+  .pin-button,
+  .topbar .settings-button {
+    width: 100%;
+  }
+
+  .mining-control-panel.widget .control-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pet-shell.widget .luck-meter {
+    grid-template-columns: auto auto minmax(66px, 1fr);
+  }
+}
+
+@media (max-width: 390px) {
+  .settings-section-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Soft terminal companion redesign */
+:root {
+  --ui-bg: #101113;
+  --ui-bg-raised: #15171a;
+  --ui-panel: #181b20;
+  --ui-panel-soft: #1d2127;
+  --ui-border: rgba(231, 226, 214, 0.09);
+  --ui-border-strong: rgba(231, 226, 214, 0.15);
+  --ui-text: #ece7dc;
+  --ui-muted: #98a1ad;
+  --ui-faint: #69727f;
+  --ui-amber: #f2a23a;
+  --ui-amber-soft: rgba(242, 162, 58, 0.13);
+  --ui-green: #8fd6a8;
+  --ui-cyan: #8bcbd7;
+  --ui-red: #ff8178;
+  --ui-shadow: 0 18px 52px rgba(0, 0, 0, 0.28);
+  --text: var(--ui-text);
+  --muted: var(--ui-muted);
+}
+
+.pet-shell,
+.pet-shell.lucky {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.028), transparent 140px),
+    linear-gradient(135deg, #15171a 0%, #101113 48%, #0d0f12 100%);
+  color: var(--ui-text);
+  gap: 12px;
+  padding: 16px;
+}
+
+.pet-shell * {
+  letter-spacing: 0 !important;
+}
+
+.topbar {
+  border-bottom: 0;
+  gap: 14px;
+  padding-bottom: 0;
+}
+
+.topbar h1 {
+  color: var(--ui-text);
+  font-size: 18px;
+  font-weight: 720;
+  line-height: 1.1;
+}
+
+.eyebrow,
+.label {
+  color: var(--ui-muted);
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: none;
+}
+
+.header-actions {
+  gap: 7px;
+}
+
+.mode-button,
+.pin-button,
+.topbar .settings-button,
+.mini-button,
+.secondary-button,
+.close-button {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  color: #c9d1dc;
+  font-size: 12px;
+  font-weight: 650;
+  min-height: 30px;
+  padding: 6px 10px;
+  text-transform: none;
+}
+
+.mode-button:hover,
+.pin-button:hover,
+.topbar .settings-button:hover,
+.mini-button:hover,
+.secondary-button:hover,
+.close-button:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--ui-border-strong);
+}
+
+.pin-button.active,
+.mode-button.armed {
+  background: var(--ui-amber-soft);
+  border-color: rgba(242, 162, 58, 0.42);
+  color: #ffd18b;
+}
+
+.widget-view {
+  align-content: center;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.widget-pet-stage {
+  align-content: center;
+}
+
+.pet-shell.widget .pet-display-stack {
+  gap: 8px;
+  width: min(100%, 298px);
+}
+
+.pet-shell.widget .pet-machine-container {
+  width: min(100%, 270px);
+}
+
+.pet-shell.widget .pet-machine {
+  height: clamp(124px, 38dvh, 160px);
+  width: clamp(174px, 60vw, 210px);
+}
+
+.pet-shell.widget .pet-shape-cyber-console .pet-machine {
+  width: clamp(184px, 64vw, 222px);
+}
+
+.pet-shell.widget .pet-shape-fortune-arcade .pet-machine {
+  width: clamp(166px, 58vw, 202px);
+}
+
+.pet-shell.widget .mini-stats-line {
+  background: transparent;
+  border: 0;
+  color: var(--ui-muted);
+  font-size: 12px;
+  justify-content: center;
+  max-width: 100%;
+  opacity: 1;
+  padding: 0;
+}
+
+.pet-shell.widget .mini-stats-line span {
+  max-width: 100%;
+}
+
+.mining-control-panel,
+.dashboard-pet-panel,
+.dashboard-primary-metrics article,
+.metric-list-panel,
+.dashboard-log-panel {
+  background: var(--ui-panel);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.dashboard-view {
+  gap: 12px;
+  overflow-y: auto;
+  padding: 1px 2px 4px 0;
+}
+
+.dashboard-command-row {
+  align-items: stretch;
+  gap: 12px;
+  grid-template-columns: minmax(270px, 0.92fr) minmax(300px, 1.08fr);
+}
+
+.dashboard-pet-panel {
+  align-content: center;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent),
+    var(--ui-bg-raised);
+  min-height: 318px;
+  padding: 16px;
+}
+
+.pet-shell.dashboard .pet-machine-container {
+  width: min(100%, 320px);
+}
+
+.pet-shell.dashboard .pet-machine {
+  height: 206px;
+  width: 252px;
+}
+
+.pet-shell.dashboard .pet-shape-cyber-console .pet-machine {
+  width: 266px;
+}
+
+.pet-shell.dashboard .pet-shape-fortune-arcade .pet-machine {
+  width: 242px;
+}
+
+.pet-shell.dashboard .pet-companion-panel {
+  gap: 8px;
+  width: min(100%, 320px);
+}
+
+.pet-speech {
+  background: rgba(12, 14, 17, 0.72);
+  border-color: rgba(242, 162, 58, 0.24);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.pet-speech::before {
+  border-color: rgba(242, 162, 58, 0.24);
+}
+
+.pet-speech b {
+  color: #ffd18b;
+  font-size: 10px;
+}
+
+.pet-speech span {
+  color: #d8dee6;
+  font-size: 12px;
+}
+
+.pet-care-meters {
+  gap: 6px;
+}
+
+.pet-care-meters b {
+  color: var(--ui-muted);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.pet-care-meters i {
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.pet-care-meters em {
+  background: linear-gradient(90deg, var(--ui-cyan), var(--ui-green));
+}
+
+.mining-control-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent),
+    var(--ui-panel);
+  gap: 12px;
+  padding: 14px;
+}
+
+.mining-control-panel.dashboard {
+  grid-template-rows: auto auto auto minmax(48px, auto);
+}
+
+.mining-control-panel.widget {
+  background: transparent;
+  border: 0;
+  gap: 9px;
+  padding: 0;
+  width: min(100%, 292px);
+}
+
+.mining-control-panel.widget .control-readout {
+  display: grid;
+}
+
+.control-readout {
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(242, 162, 58, 0.18);
+  border-radius: 8px;
+  min-height: 86px;
+  padding: 14px;
+}
+
+.mining-control-panel.widget .control-readout {
+  min-height: 58px;
+  padding: 10px 12px;
+}
+
+.control-readout span,
+.control-context span,
+.control-context b {
+  color: var(--ui-muted);
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: none;
+}
+
+.control-readout strong {
+  color: #f5ebd7;
+  font-size: clamp(24px, 5vw, 34px);
+  font-weight: 780;
+  line-height: 1.05;
+  margin-top: 6px;
+}
+
+.mining-control-panel.widget .control-readout strong {
+  font-size: 18px;
+}
+
+.control-status-grid {
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.72fr);
+}
+
+.pet-shell.dashboard .status-copy,
+.pet-shell.dashboard .luck-meter,
+.pet-shell.widget .status-copy,
+.pet-shell.widget .luck-meter {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  min-height: 64px;
+  padding: 10px 12px;
+}
+
+.pet-shell.widget .status-copy,
+.pet-shell.widget .luck-meter {
+  min-height: 44px;
+  padding: 8px 10px;
+}
+
+.status {
+  color: var(--ui-text);
+  font-size: 22px;
+  font-weight: 720;
+  text-transform: none;
+}
+
+.pet-shell.widget .status {
+  font-size: 15px;
+}
+
+.status.flash {
+  color: #ffd18b;
+}
+
+.luck-meter {
+  gap: 4px;
+}
+
+.luck-meter span {
+  color: var(--ui-muted);
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: none;
+}
+
+.luck-meter b {
+  color: #ffd18b;
+  font-size: 16px;
+  font-weight: 760;
+}
+
+.pet-shell.widget .luck-meter b {
+  font-size: 12px;
+}
+
+.luck-meter div {
+  background: rgba(255, 255, 255, 0.08);
+  border: 0;
+  height: 6px;
+}
+
+.luck-meter i {
+  background: linear-gradient(90deg, var(--ui-green), var(--ui-amber));
+}
+
+.control-context {
+  gap: 8px;
+}
+
+.control-context span {
+  background: rgba(255, 255, 255, 0.032);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  min-height: 48px;
+  padding: 8px 10px;
+}
+
+.control-context b {
+  display: block;
+}
+
+.control-button {
+  border: 0;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 760;
+  min-height: 52px;
+  padding: 12px 18px;
+  text-transform: none;
+}
+
+.pet-shell.widget .control-button {
+  min-height: 44px;
+}
+
+.start {
+  background: #f2a23a;
+  color: #1e1405;
+}
+
+.start:hover {
+  background: #f7b65c;
+}
+
+.stop {
+  background: rgba(255, 129, 120, 0.13);
+  border: 1px solid rgba(255, 129, 120, 0.25);
+  color: #ffaaa4;
+}
+
+.dashboard-metrics-panel {
+  align-items: stretch;
+  gap: 12px;
+  grid-template-areas:
+    "primary network connection"
+    "session session system";
+  grid-template-columns: minmax(224px, 0.8fr) minmax(220px, 1fr) minmax(220px, 1fr);
+}
+
+.dashboard-primary-metrics {
+  grid-area: primary;
+  grid-template-columns: 1fr;
+}
+
+.dashboard-secondary-metrics,
+.dashboard-network-panel {
+  grid-area: network;
+}
+
+.dashboard-session-panel {
+  grid-area: session;
+}
+
+.dashboard-connection-panel {
+  grid-area: connection;
+}
+
+.dashboard-resource-panel {
+  grid-area: system;
+}
+
+.dashboard-primary-metrics article {
+  align-content: center;
+  background: var(--ui-panel);
+  min-height: 82px;
+  padding: 14px;
+}
+
+.dashboard-primary-metrics .label {
+  color: var(--ui-muted);
+}
+
+.dashboard-primary-metrics strong {
+  color: var(--ui-text);
+  font-size: 22px;
+  font-weight: 760;
+  line-height: 1.1;
+  margin-top: 8px;
+}
+
+.metric-list-panel {
+  align-content: start;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr;
+  min-height: 0;
+  min-width: 0;
+  padding: 12px;
+}
+
+.metric-panel-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.metric-list-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.dashboard-session-panel .metric-list-grid,
+.dashboard-resource-panel .metric-list-grid {
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+}
+
+.metric-list-grid span {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.045);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px;
+}
+
+.metric-list-grid b {
+  color: var(--ui-muted);
+  font: 650 10px "Segoe UI", system-ui, sans-serif;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.metric-list-grid em {
+  color: #dce3ea;
+  display: block;
+  font: 650 12px "Cascadia Mono", Consolas, monospace;
+  font-style: normal;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-log-panel {
+  background: rgba(24, 27, 32, 0.88);
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 10px 12px;
+  position: static;
+}
+
+.log-label {
+  color: var(--ui-muted);
+  font-size: 11px;
+  text-transform: none;
+}
+
+.log-text {
+  color: #c8d0da;
+  font-size: 12px;
+}
+
+.log-actions {
+  gap: 6px;
+}
+
+.settings-panel {
+  background: var(--ui-bg-raised);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  box-shadow: var(--ui-shadow);
+}
+
+.settings-panel .panel-heading,
+.settings-section-tabs,
+.settings-panel .panel-actions {
+  background: rgba(21, 23, 26, 0.96);
+}
+
+.settings-content {
+  gap: 12px;
+}
+
+.settings-section-card {
+  background: var(--ui-panel);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+}
+
+input,
+select {
+  background: #111317;
+  border-color: var(--ui-border-strong);
+  border-radius: 8px;
+  color: var(--ui-text);
+  font-size: 12px;
+  height: 32px;
+  padding: 5px 9px;
+}
+
+.form-grid label,
+.settings-field,
+.toggle-field {
+  color: var(--ui-muted);
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: none;
+}
+
+.toggle-field {
+  background: rgba(255, 255, 255, 0.026);
+  border-color: var(--ui-border);
+  min-height: 42px;
+}
+
+.preset-choice-group button,
+.settings-section-tabs button {
+  border-radius: 8px;
+  font-size: 12px;
+  min-height: 32px;
+  text-transform: none;
+}
+
+.preset-choice-group button.selected,
+.preset-choice-group button[aria-pressed="true"] {
+  background: var(--ui-amber-soft);
+  border-color: rgba(242, 162, 58, 0.42);
+  color: #ffd18b;
+}
+
+.confirm-button {
+  background: #f2a23a;
+  border-radius: 8px;
+  color: #1e1405;
+  font-size: 12px;
+  font-weight: 760;
+  min-height: 32px;
+  padding: 7px 12px;
+}
+
+.panel-actions span {
+  color: var(--ui-muted);
+  font-size: 11px;
+}
+
+.app-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.055);
+  color: var(--ui-muted);
+  font-size: 11px;
+  padding-top: 10px;
+}
+
+.dot {
+  background: var(--ui-green);
+}
+
+.dot.armed {
+  background: var(--ui-amber);
+}
+
+.cpu {
+  color: #c0c8d1;
+}
+
+@media (max-width: 980px) {
+  .dashboard-metrics-panel {
+    grid-template-areas:
+      "primary network"
+      "connection session"
+      "system system";
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .pet-shell,
+  .pet-shell.lucky {
+    padding: 12px;
+  }
+
+  .dashboard-command-row,
+  .dashboard-metrics-panel {
+    grid-template-areas:
+      "primary"
+      "network"
+      "connection"
+      "session"
+      "system";
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-command-row {
+    grid-template-areas: none;
+  }
+
+  .dashboard-pet-panel {
+    min-height: 0;
+  }
+
+  .dashboard-primary-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .control-status-grid,
+  .mining-control-panel.dashboard .control-status-grid,
+  .metric-list-grid,
+  .dashboard-session-panel .metric-list-grid,
+  .dashboard-resource-panel .metric-list-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-primary-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-log-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .log-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 440px) {
+  .topbar {
+    gap: 10px;
+  }
+
+  .header-actions {
+    gap: 6px;
+  }
+
+  .mode-button,
+  .pin-button,
+  .topbar .settings-button {
+    font-size: 11px;
+    padding: 6px 7px;
+  }
+
+  .pet-shell.widget .pet-machine {
+    height: 132px;
+    width: 178px;
+  }
+
+  .pet-shell.dashboard .pet-machine {
+    height: 164px;
+    width: 204px;
+  }
+}
+
+/* Settings pet previews should read as the same pets as the main stage. */
+.pet-settings-showcase {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.026);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(188px, 0.92fr) minmax(0, 1fr);
+  margin-top: 10px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.pet-settings-showcase .pet-display-stack {
+  gap: 8px;
+  justify-items: center;
+  min-width: 0;
+  width: 100%;
+}
+
+.pet-settings-showcase .pet-machine-container {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  max-width: 100%;
+  overflow: visible;
+  width: min(100%, 244px);
+}
+
+.pet-settings-showcase .pet-machine {
+  height: 164px;
+  max-width: 100%;
+  padding: 7px;
+  width: 204px;
+}
+
+.pet-settings-showcase .pet-shape-cyber-console .pet-machine {
+  width: 216px;
+}
+
+.pet-settings-showcase .pet-shape-fortune-arcade .pet-machine {
+  width: 196px;
+}
+
+.pet-settings-showcase .pet-companion-panel {
+  display: grid;
+  gap: 6px;
+  width: min(100%, 244px);
+}
+
+.pet-settings-showcase .pet-care-meters {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.pet-settings-showcase .pet-profile-summary {
+  align-self: stretch;
+  margin-top: 0;
+}
+
+.pet-profile-picker {
+  grid-template-columns: repeat(auto-fit, minmax(218px, 1fr));
+  margin-top: 10px;
+}
+
+.pet-profile-option {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 112px minmax(0, 1fr);
+  min-height: 124px;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.pet-profile-option.selected {
+  background: rgba(242, 162, 58, 0.075);
+}
+
+.pet-profile-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pet-profile-preview-shell {
+  display: grid;
+  min-height: 104px;
+  min-width: 0;
+  overflow: visible;
+  place-items: center;
+  pointer-events: none;
+  width: 112px;
+}
+
+.pet-profile-preview-shell .pet-display-stack {
+  gap: 0;
+  justify-items: center;
+  width: 112px;
+}
+
+.pet-profile-preview-shell .pet-machine-container {
+  display: grid;
+  height: auto;
+  justify-items: center;
+  overflow: visible;
+  width: 112px;
+}
+
+.pet-profile-preview-shell .pet-machine {
+  height: 82px;
+  max-width: none;
+  overflow: visible;
+  padding: 5px;
+  width: 96px;
+}
+
+.pet-profile-preview-shell .pet-shape-cyber-console .pet-machine {
+  width: 88px;
+}
+
+.pet-profile-preview-shell .pet-shape-fortune-arcade .pet-machine {
+  width: 94px;
+}
+
+.pet-profile-preview-shell .pet-silhouette-wide-cabinet .pet-machine {
+  width: 102px;
+}
+
+.pet-profile-preview-shell .pet-silhouette-tall-console .pet-machine {
+  height: 94px;
+  width: 82px;
+}
+
+.pet-profile-preview-shell .pet-silhouette-round-arcade .pet-machine {
+  height: 88px;
+  width: 94px;
+}
+
+.pet-profile-preview-shell .pet-silhouette-wide-cabinet .pet-machine::before,
+.pet-profile-preview-shell .pet-silhouette-round-arcade .pet-machine::before {
+  transform: scale(0.72);
+  transform-origin: top center;
+}
+
+.pet-profile-preview-shell .pet-marquee {
+  font-size: 6px;
+  min-height: 10px;
+  padding: 1px 4px;
+}
+
+.pet-profile-preview-shell .pet-lights {
+  margin-bottom: 3px;
+  padding: 0 10px;
+}
+
+.pet-profile-preview-shell .light {
+  height: 4px;
+  width: 4px;
+}
+
+.pet-profile-preview-shell .pet-screen {
+  border-radius: 5px;
+  padding: 4px;
+}
+
+.pet-profile-preview-shell .pet-expression {
+  font-size: 9px;
+  min-height: 12px;
+}
+
+.pet-profile-preview-shell .pet-slots {
+  gap: 3px;
+  margin-top: 3px;
+}
+
+.pet-profile-preview-shell .slot-reel {
+  border-radius: 3px;
+  font-size: 8px;
+  height: 17px;
+}
+
+.pet-profile-preview-shell .reel-strip span {
+  height: 17px;
+}
+
+.pet-profile-preview-shell .pet-status-plate {
+  font-size: 5px;
+  margin-top: 3px;
+}
+
+.pet-profile-preview-shell .pet-identity-strip {
+  font-size: 5px;
+  margin-top: 2px;
+}
+
+.pet-profile-preview-shell .pet-panel-decor {
+  gap: 3px;
+  margin-top: 3px;
+}
+
+.pet-profile-preview-shell .decor-btn {
+  height: 3px;
+  width: 3px;
+}
+
+.pet-profile-preview-shell .pet-ornament-lever {
+  height: 18px;
+  right: -6px;
+}
+
+.pet-profile-preview-shell .pet-ornament-lever::before {
+  height: 8px;
+  left: -2px;
+  top: -7px;
+  width: 8px;
+}
+
+.pet-profile-preview-shell .pet-ornament-antenna {
+  height: 13px;
+  top: -10px;
+  width: 3px;
+}
+
+.pet-profile-preview-shell .pet-ornament-antenna::before {
+  height: 8px;
+  left: -2.5px;
+  top: -6px;
+  width: 8px;
+}
+
+.pet-profile-preview-shell .pet-ornament-coin {
+  height: 13px;
+  right: 8px;
+  top: -6px;
+  width: 13px;
+}
+
+.pet-profile-preview-shell .pet-mark-coin-slot {
+  right: 14px;
+  top: 20px;
+  width: 18px;
+}
+
+.pet-profile-preview-shell .pet-mark-bell-arch {
+  height: 22px;
+  left: 14px;
+  right: 14px;
+  top: 7px;
+}
+
+.pet-profile-preview-shell .pet-mark-coin-tray {
+  left: 24px;
+  right: 24px;
+}
+
+.pet-profile-preview-shell .pet-feet {
+  bottom: -5px;
+}
+
+.pet-profile-preview-shell .pet-feet span {
+  height: 6px;
+  width: 16px;
+}
+
+.pet-profile-preview-shell .mini-stats-line,
+.pet-profile-preview-shell .pet-companion-panel {
+  display: none;
+}
+
+.pet-option-preview {
+  display: grid;
+  height: 70px;
+  justify-items: center;
+  min-width: 0;
+  overflow: visible;
+  place-items: center;
+  width: 78px;
+}
+
+.pet-option-preview .pet-machine {
+  animation: none !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 22%),
+    linear-gradient(135deg, var(--pet-cabinet), var(--pet-cabinet-dark));
+  border-color: var(--pet-primary);
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.26),
+    0 0 0 1px rgba(255, 255, 255, 0.025) inset;
+  display: flex;
+  flex-direction: column;
+  height: 56px;
+  overflow: visible;
+  padding: 4px;
+  transform: none !important;
+  width: 64px;
+}
+
+.pet-option-preview .pet-machine::before {
+  display: none;
+}
+
+.pet-option-preview.pet-silhouette-wide-cabinet .pet-machine {
+  border-radius: 8px 8px 6px 6px;
+  height: 54px;
+  width: 68px;
+}
+
+.pet-option-preview.pet-silhouette-tall-console .pet-machine {
+  border-radius: 8px 8px 13px 13px;
+  clip-path: polygon(8% 0, 92% 0, 100% 80%, 86% 100%, 14% 100%, 0 80%);
+  height: 66px;
+  width: 54px;
+}
+
+.pet-option-preview.pet-silhouette-round-arcade .pet-machine {
+  border-radius: 18px 18px 8px 8px;
+  height: 60px;
+  width: 62px;
+}
+
+.pet-option-marquee {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 4px;
+  color: var(--pet-secondary);
+  display: flex;
+  font: 700 6px "Cascadia Mono", Consolas, monospace;
+  gap: 3px;
+  justify-content: space-between;
+  line-height: 1;
+  margin-bottom: 3px;
+  min-height: 9px;
+  min-width: 0;
+  padding: 1px 3px;
+  text-transform: uppercase;
+}
+
+.pet-option-marquee span,
+.pet-option-marquee b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pet-option-marquee b {
+  color: var(--pet-accent);
+  flex: 0 0 auto;
+  font-size: 5px;
+}
+
+.pet-option-lights {
+  align-items: center;
+  display: flex;
+  justify-content: space-around;
+  margin: 0 0 3px;
+  padding: 0 8px;
+}
+
+.pet-option-lights i {
+  background: var(--pet-secondary);
+  border-radius: 50%;
+  box-shadow: 0 0 5px var(--pet-secondary-glow);
+  display: block;
+  height: 4px;
+  opacity: 0.78;
+  width: 4px;
+}
+
+.pet-option-screen {
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 4px),
+    var(--pet-screen);
+  border-color: var(--pet-screen-glow);
+  border-radius: 4px;
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-height: 0;
+  padding: 3px;
+}
+
+.pet-screen-visor .pet-option-screen {
+  border-radius: 999px 999px 5px 5px;
+}
+
+.pet-screen-arched .pet-option-screen {
+  border-radius: 12px 12px 5px 5px;
+}
+
+.pet-option-expression {
+  color: var(--pet-screen-glow);
+  display: block;
+  font: 700 7px "Cascadia Mono", Consolas, monospace;
+  line-height: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-shadow: 0 0 4px var(--pet-screen-glow-soft);
+  white-space: nowrap;
+}
+
+.pet-option-reels {
+  display: grid;
+  gap: 2px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.pet-option-reel {
+  align-items: center;
+  background: #050608;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  color: var(--pet-reel);
+  display: flex;
+  font: 800 7px "Cascadia Mono", Consolas, monospace;
+  height: 12px;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pet-option-status {
+  color: var(--pet-secondary);
+  display: block;
+  font-size: 5px;
+  margin-top: 3px;
+}
+
+@media (max-width: 560px) {
+  .pet-settings-showcase {
+    grid-template-columns: 1fr;
+  }
+
+  .pet-settings-showcase .pet-care-meters {
+    grid-template-columns: 1fr;
+  }
+
+  .pet-profile-picker {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Settings lives inside pet-shell, so isolate its pet previews from shell mode sizing. */
+.pet-shell .settings-panel .pet-settings-showcase .pet-display-stack {
+  gap: 8px;
+  justify-items: center;
+  width: 100%;
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-machine-container {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  width: min(100%, 244px);
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-machine {
+  height: 164px;
+  max-width: 100%;
+  padding: 7px;
+  width: 204px;
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-shape-cyber-console .pet-machine {
+  width: 216px;
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-shape-fortune-arcade .pet-machine {
+  width: 196px;
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-silhouette-wide-cabinet .pet-machine {
+  width: 204px;
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-silhouette-tall-console .pet-machine {
+  height: 164px;
+  width: 176px;
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-silhouette-round-arcade .pet-machine {
+  height: 164px;
+  width: 188px;
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-companion-panel {
+  display: grid;
+  gap: 6px;
+  width: min(100%, 244px);
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-display-stack {
+  gap: 0;
+  width: 112px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-machine-container {
+  display: grid;
+  justify-items: center;
+  width: 112px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-machine {
+  height: 82px;
+  max-width: none;
+  padding: 5px;
+  width: 96px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-shape-cyber-console .pet-machine {
+  width: 88px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-shape-fortune-arcade .pet-machine {
+  width: 94px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-silhouette-wide-cabinet .pet-machine {
+  height: 82px;
+  width: 102px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-silhouette-tall-console .pet-machine {
+  height: 94px;
+  width: 82px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-silhouette-round-arcade .pet-machine {
+  height: 88px;
+  width: 94px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-companion-panel,
+.pet-shell .settings-panel .pet-profile-preview-shell .mini-stats-line {
+  display: none;
+}
+
+/* Dashboard pet stage uses the same pet, but needs dashboard-scale internals. */
+.dashboard-pet-panel .pet-marquee {
+  font-size: 10px;
+  min-height: 17px;
+  padding: 0 7px;
+}
+
+.dashboard-pet-panel .pet-lights {
+  margin-bottom: 7px;
+  padding: 0 18px;
+}
+
+.dashboard-pet-panel .light {
+  height: 7px;
+  width: 7px;
+}
+
+.dashboard-pet-panel .pet-screen {
+  border-radius: 9px;
+  padding: 9px;
+}
+
+.dashboard-pet-panel .pet-expression {
+  font-size: 23px;
+  min-height: 32px;
+}
+
+.dashboard-pet-panel .pet-slots {
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.dashboard-pet-panel .slot-reel {
+  border-radius: 6px;
+  font-size: 18px;
+  height: 42px;
+}
+
+.dashboard-pet-panel .reel-strip span {
+  height: 42px;
+}
+
+.dashboard-pet-panel .pet-status-plate {
+  font-size: 9px;
+  margin-top: 7px;
+}
+
+.dashboard-pet-panel .pet-identity-strip {
+  font-size: 8px;
+  margin-top: 5px;
+}
+
+.dashboard-pet-panel .pet-panel-decor {
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.dashboard-pet-panel .decor-btn {
+  height: 6px;
+  width: 6px;
+}
+
+.dashboard-pet-panel .pet-mark-coin-slot {
+  height: 4px;
+  right: 20px;
+  top: 32px;
+  width: 30px;
+}
+
+.dashboard-pet-panel .pet-mark-heat-vents {
+  height: 7px;
+}
+
+.dashboard-pet-panel .pet-mark-bell-arch {
+  height: 38px;
+  left: 24px;
+  right: 24px;
+}
+
+.dashboard-pet-panel .pet-mark-coin-tray {
+  left: 48px;
+  right: 48px;
 }

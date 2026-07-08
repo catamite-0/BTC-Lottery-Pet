@@ -9,5 +9,6 @@ pub use protocol::{
 };
 pub use state::{
     share_matches_current_job, share_matches_valid_previous_job, should_submit_share, JobTemplate,
-    BestDifficultyTracker, MiningStats, ShareSubmission, SharedMiningState, ValidPreviousJob,
+    BestDifficultyTracker, MiningStats, PendingShareSubmission, PendingShareSubmissions,
+    ShareSubmission, SharedMiningState, ValidPreviousJob,
 };

@@ -6,6 +6,7 @@ import {
   listenToMiningStats,
   stopRealMining,
 } from "../platform/tauri/miningClient";
+import { miningLogMessageForActiveSession } from "../contracts/mining";
 import {
   notifyConnectionError,
   notifyJackpot,
@@ -132,9 +133,14 @@ export function useMiningEvents({
     let unmounted = false;
 
     listenToMiningLogs((event) => {
-      const message = typeof event.payload === "string"
-        ? event.payload
-        : event.payload.message;
+      const message = miningLogMessageForActiveSession(
+        event.payload,
+        activeMiningSessionIdRef.current,
+      );
+      if (message === null) {
+        return;
+      }
+
       appendDevLog("stratum", message);
     })
       .then((cleanup) => {
@@ -148,6 +154,7 @@ export function useMiningEvents({
 
     return () => { unmounted = true; unlisten?.(); };
   }, [
+    activeMiningSessionIdRef,
     appendDevLog,
     runningInTauri,
     setErrorMessage,

@@ -10,12 +10,16 @@ export default function DiagnosticsToolsSection({
   poolDiagnosticResult,
 }: DiagnosticsToolsSectionProps) {
   return (
-    <>
-      <div id="settings-diagnostics" className="settings-section-marker">
+    <section
+      id="settings-diagnostics"
+      className="diagnostics-settings-panel settings-section-card"
+      aria-label="Diagnostics tools"
+    >
+      <div className="settings-section-heading">
         <p className="eyebrow">TOOLS</p>
         <strong>Benchmarks and connection diagnostics</strong>
       </div>
-      <div className="benchmark-row settings-section-card">
+      <div className="benchmark-row">
         <div className="settings-tool-actions">
           <button className="secondary-button" onClick={() => void runPoolDiagnostic()} type="button">TEST POOL</button>
         </div>
@@ -30,6 +34,6 @@ export default function DiagnosticsToolsSection({
           </div>
         )}
       </div>
-    </>
+    </section>
   );
 }

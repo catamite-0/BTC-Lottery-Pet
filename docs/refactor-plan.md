@@ -16,10 +16,13 @@ that local CPU boundary.
   commands for removed compute paths.
 - The frontend has one engine path for CPU mining through the Rust backend.
 - Real CPU mining events are session-scoped. The frontend ignores stale
-  session payloads and treats structured `mining-event` payloads, not log text,
-  as the authoritative runtime state source.
-- Diagnostics now export app metadata, sanitized config, log path, recent log
-  lines, latest connection error, and frontend CPU runtime summary.
+  session payloads and session-scoped `mining-log` payloads, and treats
+  structured `mining-event` payloads, not log text, as the authoritative runtime
+  state source.
+- Diagnostics now export app metadata, sanitized config, a CPU kernel benchmark,
+  log path, recent log lines, latest connection error, and frontend CPU runtime
+  summary. `COPY DIAG` is clipboard troubleshooting text; `SAVE DIAG` writes a
+  JSON snapshot or bundle that can include the frontend dev log.
 
 ## Completed Scope Narrowing
 
@@ -36,6 +39,14 @@ that local CPU boundary.
   compute routes.
 - Added backend session ids, joined stop/start lifecycle handling, structured
   runtime events, and stale-session filtering in the frontend.
+- Added CPU hash hardening around the specialized 80-byte full-header path,
+  midstate equivalence, compact `nbits` expansion, target word comparison, and
+  benchmark window validation.
+- Added Stratum/job hardening for hex field validation, invalid active job
+  discard events, pending share expiration, reconnect queue draining, and
+  queue-full drop logging.
+- Reworked Dashboard and Settings presentation into denser grouped panels,
+  segmented CPU presets, notification toggles, and pet previews.
 
 ## Architecture Boundaries
 
@@ -92,11 +103,11 @@ Rules:
 
 Goal: improve the real mining loop without expanding compute scope.
 
-- Benchmark the `btc-hash-cpu` full-header and midstate paths with fixed
-  header fixtures.
+- Continue benchmarking the `btc-hash-cpu` full-header and midstate paths with
+  fixed header fixtures.
 - Keep consensus double SHA-256 behavior byte-for-byte identical.
-- Reduce repeated header setup inside worker loops where tests can prove the
-  same candidate hashes.
+- Further reduce repeated header setup inside worker loops only where tests can
+  prove the same candidate hashes.
 - Add a small worker-window metric for hashrate per configured CPU thread.
 - Keep all pool share submission and block-candidate behavior unchanged.
 
@@ -116,6 +127,12 @@ Goal: make start/stop behavior easier to reason about before more UI work.
   command returns.
 - Older sessions no longer emit authoritative frontend status after a newer
   start because stats, runtime events, logs, and block events carry session ids.
+- Pending share submissions now track job/nonce metadata, expire after 30
+  seconds, and are bounded by explicit submission budgets.
+- Reconnects drain old queued shares and record them as stale drops before a new
+  subscribe/authorize cycle.
+- Invalid pool jobs are discarded with a log line and `Invalid Pool Job` runtime
+  event instead of silently clearing worker state.
 - Continue shrinking `miner.rs` toward command orchestration only.
 - Keep protocol parsing, job state, share state, and telemetry in
   `btc-mining-core`.
@@ -169,9 +186,11 @@ Exit criteria:
 Goal: prepare a clean CPU-only release candidate.
 
 - Run `.\scripts\verify.ps1 -Strict`.
+- Build the installer with `.\scripts\verify.ps1 -Strict -BuildInstaller` or
+  with `npm run tauri:build` after the strict gate has passed.
 - Run the manual release checklist.
-- Update `CHANGELOG.md` with validation results.
-- Build the Windows installer.
+- Update `CHANGELOG.md` with validation results, installer path/size, skipped
+  checks, and current CPU-only limitations.
 
 Exit criteria:
 
@@ -190,6 +209,7 @@ Use these ownership lines when splitting future work. Detailed scopes live in
 | Backend runtime | `src-tauri/crates/btc-mining-core`, `src-tauri/src/mining_runtime` | React layout, SHA internals |
 | Frontend UI | `src/app/shell`, `src/features`, `src/styles.css` | Rust mining behavior |
 | Integration contracts | `src/contracts`, `src/platform/tauri`, `src/hooks`, `src-tauri/src/app_adapter`, `src-tauri/src/lib.rs` | Pure visual redesigns or hash internals |
+| Documentation / release check | `README.md`, `RELEASE_CHECKLIST.md`, `CHANGELOG.md`, `docs/**`, release validation notes | Product behavior code, uncoordinated runtime or UI changes |
 
 Only one thread should edit these hotspots at a time:
 
@@ -208,6 +228,9 @@ Pause and re-coordinate if any future change:
 - Broadens the runtime beyond explicitly confirmed local CPU mining.
 - Adds a placeholder interface for inactive compute routes.
 - Makes UI state depend on mining log text.
+- Claims browser preview can mine, run active pool diagnostics, open logs, or
+  write diagnostics.
+- Treats `COPY DIAG` and `SAVE DIAG` as the same artifact format.
 - Mixes behavior changes with large file moves.
 - Requires two threads to edit the same hotspot file.
 - Cannot be validated with the local frontend and Rust checks.

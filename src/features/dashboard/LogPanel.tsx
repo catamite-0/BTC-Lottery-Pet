@@ -23,16 +23,16 @@ export default function LogPanel({
       </div>
       <div className="log-actions">
         <button className="mini-button" onClick={() => void openLogs()} type="button">
-          OPEN LOGS
+          Open logs
         </button>
         <button className="mini-button" onClick={() => void copyLogPath()} type="button">
-          COPY PATH
+          Copy path
         </button>
         <button className="mini-button" onClick={() => void copyDiagnostics()} type="button">
-          COPY DIAG
+          Copy diag
         </button>
         <button className="mini-button" onClick={() => void saveDiagnostics()} type="button">
-          SAVE DIAG
+          Save diag
         </button>
       </div>
     </section>

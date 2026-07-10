@@ -8,14 +8,12 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-use crate::notifications::{HeartbeatInterval, NotificationChannel};
-
 const DEFAULT_CONFIG: &str = include_str!("../../../config.json");
 const DEFAULT_POOL_HOST: &str = "public-pool.io";
 const DEFAULT_POOL_PORT: u16 = 3333;
 pub(crate) const DEFAULT_POOL_PASSWORD: &str = "x";
 const DEFAULT_PET_PROFILE_ID: &str = "classic-slot";
-const BUILTIN_PET_PROFILE_IDS: &[&str] = &["classic-slot", "cyber-miner", "lucky-cat"];
+const BUILTIN_PET_PROFILE_IDS: &[&str] = &["classic-slot"];
 const OLD_PUBLIC_POOL_PORT: u16 = 21496;
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -43,9 +41,6 @@ pub(crate) struct AppConfig {
     pub(crate) notify_on_jackpot: bool,
     pub(crate) notify_on_share_accepted: bool,
     pub(crate) notify_on_connection_error: bool,
-    pub(crate) heartbeat_interval: HeartbeatInterval,
-    pub(crate) notification_channel: NotificationChannel,
-    pub(crate) webhook_url: String,
     pub(crate) pet_profile_id: String,
 }
 
@@ -63,9 +58,6 @@ impl Default for AppConfig {
             notify_on_jackpot: true,
             notify_on_share_accepted: false,
             notify_on_connection_error: true,
-            heartbeat_interval: HeartbeatInterval::Off,
-            notification_channel: NotificationChannel::LocalWindowsToast,
-            webhook_url: String::new(),
             pet_profile_id: DEFAULT_PET_PROFILE_ID.into(),
         }
     }
@@ -77,7 +69,6 @@ impl AppConfig {
         self.pool_host = self.pool_host.trim().to_owned();
         self.pool_password = normalize_pool_password(&self.pool_password);
         self.worker_name = self.worker_name.trim().to_owned();
-        self.webhook_url = self.webhook_url.trim().to_owned();
         self.pet_profile_id = normalize_pet_profile_id(&self.pet_profile_id);
 
         if self.pool_host.is_empty() {
@@ -99,11 +90,10 @@ impl AppConfig {
         }
 
         let available_threads = available_parallelism();
-        let recommended_threads = recommended_cpu_threads();
         self.cpu_threads = match self.performance_preset {
             PerformancePreset::Eco => 1,
-            PerformancePreset::Normal => recommended_threads,
-            PerformancePreset::Turbo => available_threads,
+            PerformancePreset::Normal => recommended_cpu_threads(),
+            PerformancePreset::Turbo => turbo_cpu_threads(),
             PerformancePreset::Custom => self.cpu_threads.clamp(1, available_threads),
         };
 
@@ -125,7 +115,15 @@ pub(crate) fn available_parallelism() -> usize {
 }
 
 pub(crate) fn recommended_cpu_threads() -> usize {
-    available_parallelism().min(2)
+    // Moderate default: about half the logical cores, capped so large machines
+    // do not default to an aggressive thread count. At least one thread.
+    (available_parallelism() / 2).clamp(1, 4)
+}
+
+pub(crate) fn turbo_cpu_threads() -> usize {
+    // Leave one logical thread free so the desktop stays responsive while the
+    // background pet mines. At least one thread.
+    available_parallelism().saturating_sub(1).max(1)
 }
 
 fn is_known_pool_host(pool_host: &str) -> bool {

@@ -9,7 +9,6 @@ import {
   realMiningStartError,
   resolveRuntimeMiningProfile,
   type AppConfig,
-  type CpuRuntimeAlgorithmDiagnostic,
   type RealMiningStats,
   type RuntimeMiningProfile,
   type SystemInfo,
@@ -23,7 +22,6 @@ interface UseMiningSessionControlsOptions {
   runningInTauri: boolean;
   config: AppConfig;
   systemInfo: SystemInfo;
-  runtimeAlgorithmDiagnostic: CpuRuntimeAlgorithmDiagnostic;
   isMining: boolean;
   petState: PetState;
   isMiningRef: LatestRef<boolean>;
@@ -48,7 +46,6 @@ export function useMiningSessionControls({
   runningInTauri,
   config,
   systemInfo,
-  runtimeAlgorithmDiagnostic,
   isMining,
   petState,
   isMiningRef,
@@ -123,11 +120,7 @@ export function useMiningSessionControls({
     }
   };
 
-  const runtimeMiningProfileForConfig = () => resolveRuntimeMiningProfile(
-    config,
-    systemInfo,
-    runtimeAlgorithmDiagnostic.runtimeRecommendation,
-  );
+  const runtimeMiningProfileForConfig = () => resolveRuntimeMiningProfile(config, systemInfo);
 
   const startRealMiningSession = async () => {
     const startError = realMiningStartError(config);

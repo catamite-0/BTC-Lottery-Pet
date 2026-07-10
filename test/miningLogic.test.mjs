@@ -50,7 +50,7 @@ import {
 const systemInfo = {
   available_parallelism: 8,
   default_cpu_threads: 1,
-  recommended_cpu_threads: 2,
+  recommended_cpu_threads: 4,
 };
 
 function validConfig(overrides = {}) {
@@ -66,9 +66,6 @@ function validConfig(overrides = {}) {
     notify_on_jackpot: true,
     notify_on_share_accepted: false,
     notify_on_connection_error: true,
-    heartbeat_interval: "off",
-    notification_channel: "local_windows_toast",
-    webhook_url: "",
     pet_profile_id: DEFAULT_PET_PROFILE_ID,
     ...overrides,
   };
@@ -83,8 +80,8 @@ test("pool presets normalize known ports without touching custom pools", () => {
 
 test("performance presets enforce conservative CPU thread bounds", () => {
   assert.equal(threadsForPreset("eco", systemInfo, 8), 1);
-  assert.equal(threadsForPreset("normal", systemInfo, 8), 2);
-  assert.equal(threadsForPreset("turbo", systemInfo, 1), 8);
+  assert.equal(threadsForPreset("normal", systemInfo, 8), 4);
+  assert.equal(threadsForPreset("turbo", systemInfo, 1), 7);
   assert.equal(threadsForPreset("custom", systemInfo, 99), 8);
   assert.equal(threadsForPreset("custom", systemInfo, -4), 1);
 });
@@ -93,8 +90,8 @@ test("runtime capabilities summarize CPU capacity only", () => {
   const capabilities = createRuntimeCapabilities(systemInfo);
 
   assert.equal(capabilities.availableCpuThreads, 8);
-  assert.equal(capabilities.recommendedCpuThreads, 2);
-  assert.equal(capabilities.signature, "cpu:8|rec:2");
+  assert.equal(capabilities.recommendedCpuThreads, 4);
+  assert.equal(capabilities.signature, "cpu:8|rec:4");
 });
 
 test("hardware adaptation clamps old CPU settings to this device", () => {
@@ -134,8 +131,6 @@ test("config normalization trims fields and applies CPU presets", () => {
       worker_name: "  desk_1  ",
       cpu_threads: 99,
       performance_preset: "turbo",
-      notification_channel: "webhook",
-      webhook_url: "  https://example.invalid/hook  ",
     }),
     systemInfo,
   );
@@ -145,18 +140,19 @@ test("config normalization trims fields and applies CPU presets", () => {
   assert.equal(normalized.pool_port, 3333);
   assert.equal(normalized.pool_password, "d=1");
   assert.equal(normalized.worker_name, "desk_1");
-  assert.equal(normalized.cpu_threads, 8);
+  assert.equal(normalized.cpu_threads, 7);
   assert.equal(normalized.pet_profile_id, DEFAULT_PET_PROFILE_ID);
-  assert.equal(normalized.webhook_url, "https://example.invalid/hook");
 });
 
 test("pet profile registry validates manifests and normalizes unknown ids", () => {
-  assert.equal(normalizePetProfileId("cyber-miner"), "cyber-miner");
+  assert.equal(normalizePetProfileId("classic-slot"), "classic-slot");
+  assert.equal(normalizePetProfileId("cyber-miner"), DEFAULT_PET_PROFILE_ID);
   assert.equal(normalizePetProfileId("missing-profile"), DEFAULT_PET_PROFILE_ID);
   assert.equal(getPetProfile(null).id, DEFAULT_PET_PROFILE_ID);
-  assert.equal(isKnownPetProfileId("lucky-cat"), true);
+  assert.equal(isKnownPetProfileId("classic-slot"), true);
+  assert.equal(isKnownPetProfileId("lucky-cat"), false);
   assert.equal(isKnownPetProfileId("missing-profile"), false);
-  assert.deepEqual(builtinPetProfileIds, ["classic-slot", "cyber-miner", "lucky-cat"]);
+  assert.deepEqual(builtinPetProfileIds, ["classic-slot"]);
 
   const nonObjectValidation = validatePetManifest(null);
   assert.equal(nonObjectValidation.ok, false);
@@ -215,7 +211,7 @@ test("pet profile registry validates manifests and normalizes unknown ids", () =
 });
 
 test("pet companion snapshot adds mood, care, and personality feedback", () => {
-  const profile = getPetProfile("cyber-miner");
+  const profile = getPetProfile("classic-slot");
   const baseContext = {
     profile,
     petState: "IDLE",
@@ -234,7 +230,7 @@ test("pet companion snapshot adds mood, care, and personality feedback", () => {
   };
 
   const resting = derivePetCompanionSnapshot(baseContext);
-  assert.equal(resting.name, "Volt");
+  assert.equal(resting.name, "Bitty");
   assert.equal(resting.mood, "resting");
   assert.equal(resting.reaction, profile.personality.voice.idle);
   assert.equal(resting.badges[0][0], "MOOD");

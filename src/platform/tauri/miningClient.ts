@@ -4,8 +4,6 @@ import type {
   MiningBlockFoundPayload,
   MiningLogPayload,
   MiningRuntimeEventPayload,
-  PoolDiagnosticReport,
-  PoolDiagnosticSettingsPayload,
   RealMiningStats,
   StartRealMiningSettings,
 } from "../../contracts/mining";
@@ -37,8 +35,4 @@ export function startRealMining(settings: StartRealMiningSettings) {
 
 export function stopRealMining() {
   return invoke<void>(TAURI_COMMANDS.stopRealMining);
-}
-
-export function diagnosePoolConnection(settings: PoolDiagnosticSettingsPayload) {
-  return invoke<PoolDiagnosticReport>(TAURI_COMMANDS.diagnosePoolConnection, { settings });
 }

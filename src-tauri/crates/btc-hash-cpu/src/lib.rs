@@ -1,12 +1,8 @@
-use std::time::{Duration, Instant};
-
-use btc_hash_core::{CpuKernelMode, HashEngine, HeaderHashBenchmark, HeaderWork};
+use btc_hash_core::{HashEngine, HeaderWork};
 use sha2::{compress256, Digest, Sha256};
 
 pub const DIFF_ONE_TARGET: f64 =
     26_959_535_291_011_309_493_156_476_344_723_991_336_010_898_738_574_164_086_137_773_096_960.0;
-
-const MAX_HEADER_HASH_BENCHMARK_NONCES: u32 = 1_000_000;
 
 const H_INIT: [u32; 8] = [
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
@@ -26,33 +22,6 @@ pub fn sha256_midstate(first_block: &[u8; 64]) -> [u32; 8] {
 
 pub fn double_sha256_from_midstate(midstate: &[u32; 8], tail: &[u32; 3], nonce: u32) -> [u8; 32] {
     ReusableMidstateHasher::new(tail).double_sha256(midstate, nonce)
-}
-
-fn double_sha256_80_words(header: &[u8; 80]) -> [u32; 8] {
-    let first_block: &[u8; 64] = header[0..64]
-        .try_into()
-        .expect("80-byte header contains a complete first SHA-256 block");
-    let mut first_digest = sha256_midstate(first_block);
-
-    let mut second_block = [0u8; 64];
-    second_block[0..16].copy_from_slice(&header[64..80]);
-    second_block[16] = 0x80;
-    second_block[56..64].copy_from_slice(&640_u64.to_be_bytes());
-    compress_sha256_block(&mut first_digest, &second_block);
-
-    let mut final_block = [0u8; 64];
-    for (chunk, word) in final_block[0..32]
-        .chunks_exact_mut(4)
-        .zip(first_digest.iter())
-    {
-        chunk.copy_from_slice(&word.to_be_bytes());
-    }
-    final_block[32] = 0x80;
-    final_block[56..64].copy_from_slice(&256_u64.to_be_bytes());
-
-    let mut final_digest = H_INIT;
-    compress_sha256_block(&mut final_digest, &final_block);
-    final_digest
 }
 
 pub struct ReusableMidstateHasher {
@@ -107,28 +76,6 @@ impl HashEngine for ReusableMidstateHasher {
     }
 }
 
-pub fn cpu_kernel_hash_words(
-    mode: CpuKernelMode,
-    header: &mut [u8],
-    work: &HeaderWork,
-    midstate_hasher: &mut ReusableMidstateHasher,
-    nonce: u32,
-) -> [u32; 8] {
-    match mode {
-        CpuKernelMode::Midstate => midstate_hasher.double_sha256_words(&work.midstate, nonce),
-        CpuKernelMode::FullHeader => {
-            header[76..80].copy_from_slice(&nonce.to_le_bytes());
-            match <&[u8; 80]>::try_from(&*header) {
-                Ok(header) => double_sha256_80_words(header),
-                Err(_) => {
-                    let hash = double_sha256(header);
-                    target_bytes_to_words(&hash)
-                }
-            }
-        }
-    }
-}
-
 pub fn hash_words_to_bytes(words: &[u32; 8]) -> [u8; 32] {
     let mut hash = [0u8; 32];
     for (index, word) in words.iter().enumerate() {
@@ -168,127 +115,6 @@ pub fn header_work_from_header(header: &[u8]) -> Result<HeaderWork, String> {
     ];
 
     Ok(HeaderWork { midstate, tail })
-}
-
-pub fn benchmark_header_hash_paths(
-    header: &[u8],
-    nonce_count: u32,
-) -> Result<HeaderHashBenchmark, String> {
-    if nonce_count == 0 {
-        return Err("header hash benchmark requires at least one nonce".into());
-    }
-    if nonce_count > MAX_HEADER_HASH_BENCHMARK_NONCES {
-        return Err(format!(
-            "header hash benchmark is capped at {} nonces",
-            MAX_HEADER_HASH_BENCHMARK_NONCES
-        ));
-    }
-
-    let header: &[u8; 80] = header.try_into().map_err(|_| {
-        format!(
-            "header hash benchmark requires an 80-byte header, got {}",
-            header.len()
-        )
-    })?;
-    let work = header_work_from_header(header)?;
-    let equivalence_checksum = verify_header_hash_window(header, &work, nonce_count)?;
-
-    let mut candidate = *header;
-    let full_header_start = Instant::now();
-    let mut full_header_checksum = 0_u64;
-    for nonce in 0..nonce_count {
-        candidate[76..80].copy_from_slice(&nonce.to_le_bytes());
-        full_header_checksum = mix_hash_words_checksum(
-            full_header_checksum,
-            nonce,
-            &double_sha256_80_words(&candidate),
-        );
-    }
-    let full_header_elapsed = full_header_start.elapsed();
-
-    let mut midstate_hasher = ReusableMidstateHasher::new(&work.tail);
-    let midstate_start = Instant::now();
-    let mut midstate_checksum = 0_u64;
-    for nonce in 0..nonce_count {
-        let hash_words = midstate_hasher.double_sha256_words(&work.midstate, nonce);
-        midstate_checksum = mix_hash_words_checksum(midstate_checksum, nonce, &hash_words);
-    }
-    let midstate_elapsed = midstate_start.elapsed();
-
-    if full_header_checksum != equivalence_checksum || midstate_checksum != equivalence_checksum {
-        return Err("header hash benchmark checksums diverged".into());
-    }
-
-    let full_header_hashrate = benchmark_hashrate(nonce_count, full_header_elapsed);
-    let midstate_hashrate = benchmark_hashrate(nonce_count, midstate_elapsed);
-    let speedup_ratio = if full_header_hashrate > 0.0 {
-        midstate_hashrate / full_header_hashrate
-    } else {
-        0.0
-    };
-
-    Ok(HeaderHashBenchmark {
-        nonce_count: nonce_count as u64,
-        full_header_duration_micros: full_header_elapsed.as_micros(),
-        midstate_duration_micros: midstate_elapsed.as_micros(),
-        full_header_hashrate,
-        midstate_hashrate,
-        speedup_ratio,
-        checksum: equivalence_checksum,
-    })
-}
-
-fn verify_header_hash_window(
-    header: &[u8],
-    work: &HeaderWork,
-    nonce_count: u32,
-) -> Result<u64, String> {
-    let mut candidate = header.to_vec();
-    let mut midstate_hasher = ReusableMidstateHasher::new(&work.tail);
-    let mut checksum = 0_u64;
-
-    for nonce in 0..nonce_count {
-        candidate[76..80].copy_from_slice(&nonce.to_le_bytes());
-        let full_hash = double_sha256(&candidate);
-        let midstate_hash =
-            hash_words_to_bytes(&midstate_hasher.double_sha256_words(&work.midstate, nonce));
-
-        if full_hash != midstate_hash {
-            return Err(format!("midstate hash mismatch at nonce {nonce}"));
-        }
-
-        checksum = mix_hash_checksum(checksum, nonce, &midstate_hash);
-    }
-
-    Ok(checksum)
-}
-
-fn mix_hash_checksum(current: u64, nonce: u32, hash: &[u8; 32]) -> u64 {
-    let mut mixed = current.rotate_left(7) ^ nonce as u64;
-    for chunk in hash.chunks_exact(8) {
-        mixed ^= u64::from_be_bytes(chunk.try_into().unwrap());
-        mixed = mixed.rotate_left(11).wrapping_mul(0x9E37_79B1_85EB_CA87);
-    }
-    mixed
-}
-
-fn mix_hash_words_checksum(current: u64, nonce: u32, hash_words: &[u32; 8]) -> u64 {
-    let mut mixed = current.rotate_left(7) ^ nonce as u64;
-    for chunk in hash_words.chunks_exact(2) {
-        let pair = ((chunk[0] as u64) << 32) | chunk[1] as u64;
-        mixed ^= pair;
-        mixed = mixed.rotate_left(11).wrapping_mul(0x9E37_79B1_85EB_CA87);
-    }
-    mixed
-}
-
-fn benchmark_hashrate(nonce_count: u32, elapsed: Duration) -> f64 {
-    let seconds = elapsed.as_secs_f64();
-    if seconds > 0.0 {
-        nonce_count as f64 / seconds
-    } else {
-        0.0
-    }
 }
 
 pub fn double_sha256(value: &[u8]) -> [u8; 32] {
@@ -648,45 +474,6 @@ mod tests {
     }
 
     #[test]
-    fn specialized_header_hash_matches_generic_double_sha256() {
-        let mut header = decode_header(GENESIS_HEADER);
-        let work = header_work_from_header(&header).expect("genesis header should build work");
-        let mut hasher = ReusableMidstateHasher::new(&work.tail);
-
-        for nonce in [0, 1, 2, 255, 65_535, 1_000_003, u32::MAX] {
-            header[76..80].copy_from_slice(&nonce.to_le_bytes());
-
-            let specialized_words = double_sha256_80_words(&header);
-            assert_eq!(
-                hash_words_to_bytes(&specialized_words),
-                double_sha256(&header),
-                "nonce {nonce}"
-            );
-
-            let mut midstate_header = header.to_vec();
-            let midstate_words = cpu_kernel_hash_words(
-                CpuKernelMode::Midstate,
-                &mut midstate_header,
-                &work,
-                &mut hasher,
-                nonce,
-            );
-
-            let mut full_header = header.to_vec();
-            let full_header_words = cpu_kernel_hash_words(
-                CpuKernelMode::FullHeader,
-                &mut full_header,
-                &work,
-                &mut hasher,
-                nonce,
-            );
-
-            assert_eq!(midstate_words, full_header_words, "nonce {nonce}");
-            assert_eq!(specialized_words, full_header_words, "nonce {nonce}");
-        }
-    }
-
-    #[test]
     fn compact_nbits_expands_consensus_targets() {
         assert_eq!(
             hex::encode(target_from_nbits("1d00ffff").unwrap()),
@@ -801,28 +588,5 @@ mod tests {
                 hash_words_meet_target_words(&hash_words, &hard_target),
             ]
         );
-    }
-
-    #[test]
-    fn word_checksum_matches_byte_checksum() {
-        let header = decode_header(GENESIS_HEADER);
-        let hash = double_sha256(&header);
-        let hash_words = target_bytes_to_words(&hash);
-
-        assert_eq!(
-            mix_hash_words_checksum(0x1234_5678_9abc_def0, 42, &hash_words),
-            mix_hash_checksum(0x1234_5678_9abc_def0, 42, &hash)
-        );
-    }
-
-    #[test]
-    fn benchmark_rejects_invalid_windows() {
-        let header = decode_header(GENESIS_HEADER);
-
-        assert!(benchmark_header_hash_paths(&header, 0).is_err());
-        assert!(
-            benchmark_header_hash_paths(&header, MAX_HEADER_HASH_BENCHMARK_NONCES + 1).is_err()
-        );
-        assert!(benchmark_header_hash_paths(&header[..79], 1).is_err());
     }
 }

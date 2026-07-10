@@ -1,11 +1,7 @@
 use std::{
     io::{self, BufRead, ErrorKind, Read, Write},
     net::TcpStream,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::{Duration, Instant},
+    sync::{atomic::Ordering, Arc},
 };
 
 use serde_json::Value;
@@ -30,116 +26,6 @@ pub enum ProtocolEvent {
     JobReceived { job_id: String, message: String },
     ShareAccepted { message: String },
     ShareRejected { message: String },
-}
-
-pub fn diagnostic_subscribe_result(message: &Value) -> Result<(String, usize), String> {
-    let result = message
-        .get("result")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            pool_response_error(message)
-                .map(|reason| format!("pool rejected mining.subscribe: {reason}"))
-                .unwrap_or_else(|| "pool returned an invalid mining.subscribe response".into())
-        })?;
-
-    let extranonce1 = result
-        .get(1)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "pool returned an incomplete mining.subscribe response".to_string())?;
-    validate_hex_string(&extranonce1, "extranonce1", None)?;
-    let extranonce2_size = result
-        .get(2)
-        .and_then(Value::as_u64)
-        .ok_or_else(|| "pool returned an incomplete mining.subscribe response".to_string())
-        .and_then(validate_extranonce2_size)?;
-
-    Ok((extranonce1, extranonce2_size))
-}
-
-pub fn diagnostic_authorize_result(message: &Value) -> Result<(), String> {
-    if message.get("result").and_then(Value::as_bool) == Some(true) {
-        return Ok(());
-    }
-
-    let reason =
-        pool_response_error(message).unwrap_or_else(|| "authorization returned false".into());
-    Err(format!("pool rejected mining.authorize: {reason}"))
-}
-
-pub fn read_until_diagnostic_message(
-    reader: &mut impl BufRead,
-    timeout: Duration,
-    matches_message: impl Fn(&Value) -> bool,
-) -> Result<Value, String> {
-    let deadline = Instant::now() + timeout;
-
-    loop {
-        if Instant::now() >= deadline {
-            return Err(format!("timed out after {} seconds", timeout.as_secs()));
-        }
-
-        match read_stratum_line(reader) {
-            Ok(None) => return Err("pool closed the connection".into()),
-            Ok(Some(line)) => {
-                let trimmed = line.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-
-                let message: Value = serde_json::from_str(trimmed)
-                    .map_err(|error| format!("invalid Stratum JSON: {error}"))?;
-                if matches_message(&message) {
-                    return Ok(message);
-                }
-            }
-            Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
-            Err(error) => return Err(format!("socket read failed: {error}")),
-        }
-    }
-}
-
-pub fn wait_for_diagnostic_job(
-    reader: &mut impl BufRead,
-    protocol: &mut ProtocolState,
-    timeout: Duration,
-) -> Result<(String, f64), String> {
-    let shared = Arc::new(SharedMiningState::new(Arc::new(AtomicBool::new(false))));
-    let mut pending_submissions = PendingShareSubmissions::default();
-    let deadline = Instant::now() + timeout;
-
-    loop {
-        if Instant::now() >= deadline {
-            return Err(format!(
-                "no mining.notify job received within {} seconds",
-                timeout.as_secs()
-            ));
-        }
-
-        match read_stratum_line(reader) {
-            Ok(None) => return Err("pool closed the connection before sending a job".into()),
-            Ok(Some(line)) => {
-                handle_server_message_with_logger(
-                    line.trim(),
-                    protocol,
-                    &shared,
-                    &mut pending_submissions,
-                    |_| {},
-                )?;
-
-                if let Some(job) = shared
-                    .job
-                    .read()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .as_ref()
-                {
-                    return Ok((job.job_id.clone(), job.share_difficulty));
-                }
-            }
-            Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
-            Err(error) => return Err(format!("socket read failed: {error}")),
-        }
-    }
 }
 
 pub fn handle_server_message_with_logger(
@@ -194,11 +80,10 @@ pub fn handle_server_message_with_callbacks(
                 if params.len() < 2 {
                     return Err("pool sent an incomplete mining.set_extranonce".into());
                 }
-                protocol.extranonce1 =
-                    Some(required_hex_string(params, 0, "extranonce1", None)?);
+                protocol.extranonce1 = Some(required_hex_string(params, 0, "extranonce1", None)?);
                 protocol.extranonce2_size = Some(
                     params[1]
-                    .as_u64()
+                        .as_u64()
                         .ok_or_else(|| "pool sent invalid extranonce2 size".to_string())
                         .and_then(validate_extranonce2_size)?,
                 );
@@ -422,7 +307,7 @@ fn validate_hex_string(
     label: &str,
     expected_bytes: Option<usize>,
 ) -> Result<(), String> {
-    if value.len() % 2 != 0 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    if !value.len().is_multiple_of(2) || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(format!("pool sent invalid {label} hex"));
     }
 
@@ -471,4 +356,140 @@ pub fn write_message(stream: &mut TcpStream, message: &Value) -> Result<(), Stri
     stream
         .write_all(&payload)
         .map_err(|error| format!("socket write failed: {error}"))
+}
+
+#[cfg(test)]
+mod robustness_tests {
+    //! Fuzz-style negative tests for the Stratum message parser.
+    //!
+    //! The pool is untrusted input. These sweeps feed the parser large volumes
+    //! of random and mutated bytes and assert it only ever returns `Ok`/`Err` —
+    //! never panics, slices out of bounds, overflows, or hangs. A panic here
+    //! would take down a mining worker thread. They are deterministic (seeded)
+    //! and dependency-free so they run in the normal `cargo test` suite.
+
+    use std::{
+        io::{BufReader, Cursor},
+        sync::{atomic::AtomicBool, Arc},
+    };
+
+    use super::{
+        handle_server_message_with_callbacks, read_stratum_line, ProtocolState,
+        MAX_STRATUM_LINE_BYTES,
+    };
+    use crate::{PendingShareSubmissions, SharedMiningState};
+
+    /// Small xorshift64* PRNG so the sweep is reproducible without a crate.
+    struct Rng(u64);
+
+    impl Rng {
+        fn next_u64(&mut self) -> u64 {
+            let mut x = self.0;
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            self.0 = x;
+            x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        }
+
+        fn byte(&mut self) -> u8 {
+            (self.next_u64() >> 33) as u8
+        }
+
+        fn below(&mut self, bound: usize) -> usize {
+            if bound == 0 {
+                0
+            } else {
+                (self.next_u64() % bound as u64) as usize
+            }
+        }
+    }
+
+    fn drive_message(line: &str) {
+        let mut protocol = ProtocolState {
+            extranonce1: Some("abcd".into()),
+            extranonce2_size: Some(4),
+            difficulty: 0.001,
+        };
+        let shared = Arc::new(SharedMiningState::new(Arc::new(AtomicBool::new(false))));
+        let mut pending = PendingShareSubmissions::default();
+        // Only outcome that matters: this returns without panicking.
+        let _ = handle_server_message_with_callbacks(
+            line.trim(),
+            &mut protocol,
+            &shared,
+            &mut pending,
+            |_| {},
+            |_| {},
+        );
+    }
+
+    const VALID_STRATUM_LINES: &[&str] = &[
+        r#"{"id":1,"result":[null,"abcd",4],"error":null}"#,
+        r#"{"id":2,"result":true,"error":null}"#,
+        r#"{"id":11,"result":true,"error":null}"#,
+        r#"{"id":12,"result":false,"error":["low difficulty share",23,null]}"#,
+        r#"{"method":"mining.set_difficulty","params":[0.001]}"#,
+        r#"{"method":"mining.set_extranonce","params":["abcd",4]}"#,
+        r#"{"method":"mining.notify","params":["job1","0000000000000000000000000000000000000000000000000000000000000000","01000000","ffffffff",[],"20000000","1d00ffff","5f5e1000",true]}"#,
+    ];
+
+    #[test]
+    fn parser_never_panics_on_random_or_mutated_input() {
+        let mut rng = Rng(0x1234_5678_9abc_def0);
+
+        // Fully random byte lines.
+        for _ in 0..20_000 {
+            let len = rng.below(300);
+            let bytes: Vec<u8> = (0..len).map(|_| rng.byte()).collect();
+            drive_message(&String::from_utf8_lossy(&bytes));
+        }
+
+        // Byte-level mutations of otherwise-valid messages stay close to the real
+        // protocol, so they reach the deep parse_job / nbits / hex paths.
+        for seed in VALID_STRATUM_LINES {
+            for _ in 0..4_000 {
+                let mut bytes = seed.as_bytes().to_vec();
+                let mutations = 1 + rng.below(6);
+                for _ in 0..mutations {
+                    if bytes.is_empty() {
+                        break;
+                    }
+                    match rng.below(3) {
+                        0 => {
+                            let pos = rng.below(bytes.len());
+                            bytes[pos] = rng.byte();
+                        }
+                        1 => {
+                            let pos = rng.below(bytes.len());
+                            bytes.remove(pos);
+                        }
+                        _ => {
+                            let pos = rng.below(bytes.len() + 1);
+                            bytes.insert(pos, rng.byte());
+                        }
+                    }
+                }
+                drive_message(&String::from_utf8_lossy(&bytes));
+            }
+        }
+    }
+
+    #[test]
+    fn read_stratum_line_never_panics_on_random_bytes() {
+        let mut rng = Rng(0xdead_beef_cafe_babe);
+
+        for _ in 0..5_000 {
+            let len = rng.below(2048);
+            let bytes: Vec<u8> = (0..len).map(|_| rng.byte()).collect();
+            let mut reader = BufReader::new(Cursor::new(bytes));
+            let _ = read_stratum_line(&mut reader);
+        }
+
+        // An oversized line with no newline must be rejected, not buffered without
+        // bound.
+        let oversized = vec![b'a'; MAX_STRATUM_LINE_BYTES + 16];
+        let mut reader = BufReader::new(Cursor::new(oversized));
+        assert!(read_stratum_line(&mut reader).is_err());
+    }
 }

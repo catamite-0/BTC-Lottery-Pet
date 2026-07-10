@@ -3,8 +3,6 @@ import { normalizePetProfileId } from "./pets/profiles.js";
 
 export type { PetStatus } from "./domain/petState";
 export type PerformancePreset = "eco" | "normal" | "turbo" | "custom";
-export type HeartbeatInterval = "off" | "30min" | "1h" | "6h";
-export type NotificationChannel = "local_windows_toast" | "webhook";
 
 export interface CpuRuntimeRecommendation {
   canApplyProfile?: boolean | null;
@@ -16,9 +14,6 @@ export interface CpuRuntimeRecommendation {
   summary?: string | null;
 }
 
-export interface CpuRuntimeAlgorithmDiagnostic {
-  runtimeRecommendation: CpuRuntimeRecommendation | null;
-}
 export interface AppConfig {
   btc_address: string;
   pool_host: string;
@@ -31,9 +26,6 @@ export interface AppConfig {
   notify_on_jackpot: boolean;
   notify_on_share_accepted: boolean;
   notify_on_connection_error: boolean;
-  heartbeat_interval: HeartbeatInterval;
-  notification_channel: NotificationChannel;
-  webhook_url: string;
   pet_profile_id: string;
 }
 
@@ -56,22 +48,6 @@ export interface HardwareAdaptationResult {
   capabilities: RuntimeCapabilities;
   changed: boolean;
   messages: string[];
-}
-
-export type PoolDiagnosticStatus = "ok" | "failed" | "skipped";
-
-export interface PoolDiagnosticStep {
-  name: string;
-  status: PoolDiagnosticStatus;
-  message: string;
-  duration_ms: number;
-}
-
-export interface PoolDiagnosticReport {
-  generated_at: string;
-  pool: string;
-  steps: PoolDiagnosticStep[];
-  summary: string;
 }
 
 export interface RealMiningStats {
@@ -213,9 +189,6 @@ export function normalizeAppConfig(
     notify_on_jackpot: config.notify_on_jackpot,
     notify_on_share_accepted: config.notify_on_share_accepted,
     notify_on_connection_error: config.notify_on_connection_error,
-    heartbeat_interval: config.heartbeat_interval,
-    notification_channel: config.notification_channel,
-    webhook_url: config.webhook_url.trim(),
     pet_profile_id: normalizePetProfileId(config.pet_profile_id),
     cpu_threads: threadsForPreset(
       config.performance_preset,
@@ -348,7 +321,7 @@ export function threadsForPreset(
     case "normal":
       return recommendedThreads;
     case "turbo":
-      return availableThreads;
+      return Math.max(1, availableThreads - 1);
     case "custom":
       return Math.min(Math.max(1, customThreads), availableThreads);
   }

@@ -13,11 +13,10 @@ use tauri::AppHandle;
 use crate::mining_block::record_block_candidate;
 use crate::mining_events::{emit_runtime_event, MiningRuntimeEvent};
 use crate::mining_hash::{
-    build_header, build_header_work, cpu_kernel_hash_words, difficulty_from_hash, extranonce2_hex,
-    found_block_event, header_work_from_header,
+    build_header_work, difficulty_from_hash, extranonce2_hex, found_block_event,
 };
 use crate::mining_log::log_message_for_session;
-use crate::mining_settings::{selected_cpu_kernel_mode, CpuKernelMode, RealMiningSettings};
+use crate::mining_settings::RealMiningSettings;
 use crate::mining_state::{JobTemplate, ShareSubmission, SharedMiningState};
 
 pub(crate) use btc_mining_core::BestDifficultyTracker;
@@ -30,7 +29,6 @@ struct HashWorkerContext {
     app: AppHandle,
     pool: String,
     session_id: u64,
-    cpu_kernel_mode: CpuKernelMode,
 }
 
 pub(crate) fn spawn_hash_workers(
@@ -52,7 +50,6 @@ pub(crate) fn spawn_hash_workers(
         let worker_count = total_workers;
         let worker_app = app.clone();
         let worker_pool = pool.clone();
-        let cpu_kernel_mode = selected_cpu_kernel_mode();
 
         match thread::Builder::new()
             .name(format!("btc-lottery-hash-{worker_index}"))
@@ -65,7 +62,6 @@ pub(crate) fn spawn_hash_workers(
                     app: worker_app,
                     pool: worker_pool,
                     session_id,
-                    cpu_kernel_mode,
                 })
             }) {
             Ok(handle) => workers.push(handle),
@@ -89,7 +85,6 @@ fn hash_loop(context: HashWorkerContext) {
         app,
         pool,
         session_id,
-        cpu_kernel_mode,
     } = context;
     let mut best_tracker = BestDifficultyTracker::new(&shared);
     let mut queue_full_drops = 0_u64;
@@ -108,30 +103,11 @@ fn hash_loop(context: HashWorkerContext) {
             && shared.job_generation.load(Ordering::Acquire) == job.generation
         {
             let extranonce2 = extranonce2_hex(extranonce_counter, job.extranonce2_size);
-            let (mut header, header_work) = match cpu_kernel_mode {
-                CpuKernelMode::Midstate => match build_header_work(&job, &extranonce2) {
-                    Ok(work) => (Vec::new(), work),
-                    Err(error) => {
-                        discard_invalid_job(&shared, &app, session_id, &job, error);
-                        break;
-                    }
-                },
-                CpuKernelMode::FullHeader => {
-                    let header = match build_header(&job, &extranonce2) {
-                        Ok(header) => header,
-                        Err(error) => {
-                            discard_invalid_job(&shared, &app, session_id, &job, error);
-                            break;
-                        }
-                    };
-                    let work = match header_work_from_header(&header) {
-                        Ok(work) => work,
-                        Err(error) => {
-                            discard_invalid_job(&shared, &app, session_id, &job, error);
-                            break;
-                        }
-                    };
-                    (header, work)
+            let header_work = match build_header_work(&job, &extranonce2) {
+                Ok(work) => work,
+                Err(error) => {
+                    discard_invalid_job(&shared, &app, session_id, &job, error);
+                    break;
                 }
             };
             let mut midstate_hasher =
@@ -157,13 +133,7 @@ fn hash_loop(context: HashWorkerContext) {
                     }
                 }
 
-                let hash_words = cpu_kernel_hash_words(
-                    cpu_kernel_mode,
-                    &mut header,
-                    &header_work,
-                    &mut midstate_hasher,
-                    nonce,
-                );
+                let hash_words = midstate_hasher.double_sha256_words(&header_work.midstate, nonce);
                 let [improves_best, meets_network, meets_share] =
                     crate::mining_kernel::hash_words_meet_three_targets(
                         &hash_words,

@@ -11,15 +11,7 @@ interface CpuSettingsSectionProps {
   hardwareSummary: string;
   systemInfo: SystemInfo;
   draftEffectiveCpuThreads: number;
-  observedHashrate: number | null;
-  observedCpuThreads: number | null;
-  acceptedShares: number;
-  rejectedShares: number;
-  staleSharesDropped: number;
-  queuedSharesDropped: number;
-  observedSampleSeconds: number | null;
   cpuThreadOptions: number[];
-  formatHashrate: (hashrate: number) => string;
   threadsForPreset: (
     preset: PerformancePreset,
     systemInfo: SystemInfo,
@@ -40,15 +32,7 @@ export default function CpuSettingsSection({
   hardwareSummary,
   systemInfo,
   draftEffectiveCpuThreads,
-  observedHashrate,
-  observedCpuThreads,
-  acceptedShares,
-  rejectedShares,
-  staleSharesDropped,
-  queuedSharesDropped,
-  observedSampleSeconds,
   cpuThreadOptions,
-  formatHashrate,
   threadsForPreset,
 }: CpuSettingsSectionProps) {
   const setPerformancePreset = (performancePreset: PerformancePreset) => {
@@ -67,8 +51,6 @@ export default function CpuSettingsSection({
       </div>
       <div className="device-summary-grid">
         <div><span>CPU</span><strong>{systemInfo.available_parallelism} logical</strong><small>{draftEffectiveCpuThreads} selected</small></div>
-        <div><span>LIVE HASH</span><strong>{observedHashrate !== null ? formatHashrate(observedHashrate) : "Waiting"}</strong><small>{observedCpuThreads ?? draftEffectiveCpuThreads} CPU threads</small></div>
-        <div><span>SHARES</span><strong>{acceptedShares}</strong><small>{rejectedShares} rejected</small></div>
       </div>
       <div className="form-grid">
         <div className="settings-field full-width">
@@ -103,10 +85,6 @@ export default function CpuSettingsSection({
             ))}
           </select>
         </label>
-      </div>
-      <div className="tuning-session-summary" aria-label="CPU tuning evidence">
-        <div><span>LIVE HASH</span><b>{observedHashrate !== null ? formatHashrate(observedHashrate) : "Waiting"}</b><small>CPU observation</small></div>
-        <div><span>DROPS</span><b>{staleSharesDropped + queuedSharesDropped}</b><small>{observedSampleSeconds ?? 0}s window</small></div>
       </div>
     </section>
   );

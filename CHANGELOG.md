@@ -2,7 +2,24 @@
 
 ## Unreleased
 
+### Removed
+
+- Trimmed the app to a pure CPU mining pet. Removed the pool connection
+  diagnostic (`TEST POOL`), the diagnostic snapshot export (`COPY DIAG` /
+  `SAVE DIAG`, algorithm kernel benchmark, runtime algorithm snapshot), webhook
+  and heartbeat notifications, and the unused full-header CPU kernel — the
+  backend now runs the midstate SHA-256d kernel only.
+- Dropped the `heartbeat_interval`, `notification_channel`, and `webhook_url`
+  config fields, the four related Tauri commands, and their CSP-independent
+  network egress. Local Windows toast notifications, the jackpot presentation,
+  and the block-height display are retained.
+
 ### Changed
+
+- Made `src-tauri` a Cargo workspace that includes the `btc-hash-core`,
+  `btc-hash-cpu`, and `btc-mining-core` crates, so `cargo test --workspace` and
+  `cargo clippy --workspace` (used by CI and `verify.ps1`) now cover the hash
+  and protocol crates instead of silently skipping them.
 
 - Narrowed the project to the desktop pet plus explicitly confirmed real CPU
   mining.

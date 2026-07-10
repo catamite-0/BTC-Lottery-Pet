@@ -16,8 +16,6 @@ mining only. This project does not promise or guarantee any financial return.
 - CPU-only mining workflow with a warning for high CPU settings.
 - User-controlled BTC address, pool host, pool port, worker name, pool
   password hint, and CPU thread selector.
-- Pool connection diagnostic for DNS, TCP, subscribe, authorize, and job
-  checks.
 - Single-instance protection per app identifier.
 - Rust Stratum v1 client and cancellable SHA-256d CPU hash loop.
 - `Stop` control that signals hash workers and waits for backend shutdown to
@@ -26,10 +24,8 @@ mining only. This project does not promise or guarantee any financial return.
   target from the current Stratum job's `nbits`.
 - App log directory file logging with a 1 MiB rotation limit plus timestamped
   `found_block_*.json` files for block candidate events.
-- Optional one-way notifications for jackpot, share accepted, connection
-  error, and coarse heartbeat status.
-- Dashboard diagnostic copy/save with schema version, app version, sanitized
-  config, log path, recent log lines, and latest connection error.
+- Optional local Windows notifications for jackpot, share accepted, and
+  connection error events.
 
 BTC Lottery Pet does not hide its process, enable itself at Windows startup,
 accept remote-control commands, or start mining automatically.
@@ -77,12 +73,6 @@ The presets are convenience defaults, not availability guarantees. The pool
 host field remains editable so you can use another trusted Stratum v1 solo pool
 after reviewing its documentation.
 
-The settings panel `TEST POOL` action checks the configured pool in stages:
-local config, DNS lookup, TCP connection, `mining.subscribe`,
-`mining.authorize`, and `mining.notify` job delivery. If no BTC address is
-configured, it still checks the network and subscribe path, then skips
-authorization and job delivery.
-
 The default worker username sent to the pool is:
 
 ```text
@@ -120,14 +110,16 @@ profit-switching.
 The Rust code is split by responsibility:
 
 - `btc-hash-core` defines shared hash work types and the hash engine trait.
-- `btc-hash-cpu` owns CPU SHA-256d, midstate reuse, target comparison, and the
-  fixed-window benchmark.
+- `btc-hash-cpu` owns CPU SHA-256d, midstate reuse, and target comparison.
 - `btc-mining-core` owns Stratum protocol parsing, job/share state, and mining
   telemetry.
 - `src-tauri/src/mining_runtime` owns Tauri-facing session orchestration,
   workers, pool connections, logs, and local block-candidate side effects.
-- `src-tauri/src/app_adapter` owns Tauri config, diagnostics, settings, and
-  notifications.
+- `src-tauri/src/app_adapter` owns Tauri config, settings, and notifications.
+
+These four crates form one Cargo workspace, so `cargo test --workspace` and
+`cargo clippy --workspace` cover the hash and protocol crates as well as the
+Tauri app.
 
 The frontend is split so UI work can stay in its own lane:
 
@@ -137,8 +129,8 @@ The frontend is split so UI work can stay in its own lane:
 - `src/contracts`, `src/platform/tauri`, `src/hooks`, and `src/app` own
   cross-layer state and Tauri command integration.
 
-The UI does not choose the hash algorithm. The backend selects the CPU kernel
-and exposes benchmark evidence through diagnostics.
+The UI does not choose the hash algorithm. The backend owns the CPU SHA-256d
+midstate kernel.
 
 The block-candidate record contains job ID, nonce, ntime, extranonce2, block
 hash, best difficulty estimate, timestamp, and pool host/port. It intentionally
@@ -164,30 +156,15 @@ shares once the signal is observed, waits for the Stratum thread and CPU workers
 to finish, then emits a zero-hashrate `Stopped` stats snapshot. The frontend
 shows the mining control as pending while the stop command is in flight.
 
-Notifications are one-way only. Local Windows notifications and webhooks can be
-triggered by app events, but there is no remote command polling, remote control,
-or inbound webhook listener.
-
-The Dashboard `COPY DIAG` action copies the backend diagnostic JSON followed by
-frontend troubleshooting sections as text. `SAVE DIAG` writes a structured
-diagnostic JSON file; when frontend sections are present, the file is a
-diagnostic bundle with the backend snapshot under `backend_snapshot` and
-frontend sections such as `Frontend CPU Runtime` and `Frontend DEV LOG`. The
-backend snapshot intentionally excludes the BTC address, pool password, and
-webhook URL. Recent backend log lines are redacted against the current BTC
-address, pool password, and webhook URL before export, and the frontend CPU
-runtime section does not include those fields.
-
-The settings panel pool diagnostic is an active connection check. It does not
-mine or submit shares, but it may send the configured public BTC address and
-worker name to the selected Stratum pool during the authorization stage.
+Notifications are one-way only. Local Windows notifications can be triggered by
+app events, but there is no remote command polling, remote control, or inbound
+listener.
 
 ## Current Limitations
 
-- Real mining and pool diagnostics require the Tauri desktop app. The browser
-  preview can exercise layout and settings fallback behavior, but it cannot open
-  TCP sockets, mine, run `TEST POOL`, open the log folder, or write diagnostic
-  files.
+- Real mining requires the Tauri desktop app. The browser preview can exercise
+  layout and settings fallback behavior, but it cannot open TCP sockets, mine,
+  open the log folder, or write files.
 - Mining is local CPU-only. There are no GPU, ASIC, remote worker, Stratum v2,
   TLS, proxy, failover, or profit-switching paths.
 - CPU mining starts only after the user clicks `START`; the app does not mine at
@@ -195,8 +172,6 @@ worker name to the selected Stratum pool during the authorization stage.
 - Pool preset availability, difficulty policy, and payout behavior are external
   to this project and must be verified against the pool operator's current
   documentation.
-- `COPY DIAG` is clipboard text for troubleshooting; use `SAVE DIAG` when a
-  single JSON file or diagnostic bundle is needed for release evidence.
 
 ## Configuration
 
@@ -215,9 +190,6 @@ The repository-level [`config.json`](./config.json) contains defaults:
   "notify_on_jackpot": true,
   "notify_on_share_accepted": false,
   "notify_on_connection_error": true,
-  "heartbeat_interval": "off",
-  "notification_channel": "local_windows_toast",
-  "webhook_url": "",
   "pet_profile_id": "classic-slot"
 }
 ```
@@ -238,15 +210,21 @@ CPU mining is the only run mode. Mining still begins only after the user clicks
 ## Performance Presets
 
 The settings panel asks the Rust backend for the computer's available logical
-CPU thread count and presents safe choices from `1`, `2`, `4`, and the detected
-maximum without exceeding that maximum.
+CPU thread count and lets the `CPU THREADS` selector choose any value from `1`
+up to that maximum. The presets pick sensible thread counts scaled to the
+machine:
 
 | Preset | Real CPU mining threads |
 | --- | ---: |
 | `Eco` | `1` |
-| `Normal` | Backend recommended thread count, currently up to `2` |
-| `Turbo` | Detected logical CPU thread count |
-| `Custom` | User-selected `CPU THREADS` value |
+| `Normal` | About half the logical CPU threads, capped at `4` |
+| `Turbo` | Logical CPU threads minus one, so the desktop stays responsive |
+| `Custom` | User-selected `CPU THREADS` value, up to the logical maximum |
+
+`Turbo` deliberately leaves one logical thread free rather than saturating every
+core, because the app is a background desktop ornament and SHA-256d gains little
+from the last hyperthread while making the machine hot and sluggish. A `Custom`
+value can still use every logical thread if you explicitly choose it.
 
 Starting real CPU mining with `Turbo` or a custom thread count above the backend
 recommendation displays:
@@ -261,23 +239,13 @@ and validation, so an out-of-range thread count cannot bypass the local limit.
 ## Notifications
 
 Notification settings are local configuration. `Notify on Jackpot` and `Notify
-on Connection Error` default to enabled, `Notify on Share Accepted` defaults to
-disabled, and heartbeat defaults to `off`.
+on Connection Error` default to enabled and `Notify on Share Accepted` defaults
+to disabled.
 
-Supported channels today:
-
-| Channel | Current behavior |
-| --- | --- |
-| `Local Windows Toast` | Shows a local Windows notification-style balloon. Jackpot and connection warnings also play a short system sound. |
-| `Webhook` | Sends one-way JSON POST notifications for jackpot and heartbeat events. |
-
-Webhook notifications never include the BTC address, pool username, private
-keys, or seed phrases. If a webhook fails, the app writes a local warning
-without the webhook URL and mining continues.
-
-Heartbeat notifications are coarse-grained only: `off`, `30min`, `1h`, or
-`6h`. They include status, hashrate, accepted/rejected shares, best difficulty,
-uptime, and pool host/port. They are never sent once per second.
+Alerts are delivered as local Windows notification-style balloons. Jackpot and
+connection warnings also play a short system sound. Notifications are one-way
+and local only: there is no webhook, no remote listener, and no network egress
+beyond the mining pool connection and the block-height lookups.
 
 ## Prerequisites On Windows
 
@@ -326,10 +294,9 @@ to show the window again. Use `Quit` from the tray menu to exit the app.
 
 The tray `Open Logs` item and the Dashboard `OPEN LOGS` button open the
 app-specific log folder. The Dashboard `COPY LOG PATH` button copies that
-local log folder path, `COPY DIAG` copies the diagnostic text bundle, and
-`SAVE DIAG` writes a diagnostic JSON file or bundle to the same folder. The
-regular mining log is `mining.log`; if a block candidate is detected, the event
-is also saved as a timestamped `found_block_*.json` file.
+local log folder path. The regular mining log is `mining.log`; if a block
+candidate is detected, the event is also saved as a timestamped
+`found_block_*.json` file.
 
 ## Run And Build Commands
 
@@ -394,10 +361,8 @@ For a browser-only preview of the React UI:
 npm run dev
 ```
 
-Browser previews can exercise the interface and settings UI. CPU mining and
-pool diagnostics run only inside the Tauri app because the Rust backend owns
-network and hashing. In the browser preview, `TEST POOL` reports that the
-desktop runtime is required instead of performing a real connection check.
+Browser previews can exercise the interface and settings UI. CPU mining runs
+only inside the Tauri app because the Rust backend owns network and hashing.
 
 ## Build The Windows Installer
 
@@ -423,9 +388,8 @@ Before each release, verify:
 4. The release executable uses the Windows GUI subsystem and should not open an
    extra black console window. The development command `npm run tauri:dev` can
    still keep its development terminal open; that is expected.
-5. Dashboard `OPEN LOGS` opens the local app log folder, `COPY LOG PATH`
-   copies that folder path, `COPY DIAG` copies the diagnostic text bundle, and
-   `SAVE DIAG` writes a diagnostic JSON file or bundle.
+5. Dashboard `OPEN LOGS` opens the local app log folder and `COPY LOG PATH`
+   copies that folder path.
 6. Complete the manual checks in [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)
    before tagging or distributing the installer, and record skipped checks with
    reasons in the release notes.

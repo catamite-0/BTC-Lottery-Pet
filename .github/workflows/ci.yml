@@ -58,10 +58,10 @@ jobs:
         run: npm run build
 
       - name: Run Rust tests
-        run: cargo test --manifest-path src-tauri\Cargo.toml
+        run: cargo test --workspace --manifest-path src-tauri\Cargo.toml
 
       - name: Run Rust clippy
-        run: cargo clippy --manifest-path src-tauri\Cargo.toml -- -D warnings
+        run: cargo clippy --workspace --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings
 
   windows-installer:
     name: Windows installer artifact

@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
-  HeartbeatNotificationSnapshot,
   JackpotNotificationPayload,
   NotificationSettingsPayload,
 } from "../../contracts/notifications";
@@ -19,11 +18,4 @@ export function notifyShareAccepted(settings: NotificationSettingsPayload) {
 
 export function notifyConnectionError(settings: NotificationSettingsPayload, status: string) {
   return invoke<void>(TAURI_COMMANDS.notifyConnectionError, { settings, status });
-}
-
-export function sendHeartbeatNotification(
-  settings: NotificationSettingsPayload,
-  snapshot: HeartbeatNotificationSnapshot,
-) {
-  return invoke<void>(TAURI_COMMANDS.sendHeartbeatNotification, { settings, snapshot });
 }

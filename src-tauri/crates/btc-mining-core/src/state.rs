@@ -118,11 +118,8 @@ impl PendingShareSubmissions {
     }
 
     pub fn insert(&mut self, request_id: u64, share: ShareSubmission, submitted_at: Instant) {
-        self.entries.push_back(PendingShareSubmission::new(
-            request_id,
-            share,
-            submitted_at,
-        ));
+        self.entries
+            .push_back(PendingShareSubmission::new(request_id, share, submitted_at));
     }
 
     pub fn remove(&mut self, request_id: u64) -> Option<PendingShareSubmission> {
@@ -253,9 +250,9 @@ impl SharedMiningState {
 
     pub fn clear_job_if_generation(&self, generation: u64) -> bool {
         let mut active_job = self.job.write().unwrap_or_else(|e| e.into_inner());
-        if !active_job
+        if active_job
             .as_ref()
-            .is_some_and(|job| job.generation == generation)
+            .is_none_or(|job| job.generation != generation)
         {
             return false;
         }
@@ -291,9 +288,8 @@ impl SharedMiningState {
             return;
         }
 
-        valid_previous_jobs.retain(|job| {
-            job.generation != previous.generation || job.job_id != previous.job_id
-        });
+        valid_previous_jobs
+            .retain(|job| job.generation != previous.generation || job.job_id != previous.job_id);
         valid_previous_jobs.push(ValidPreviousJob::from_job(
             previous,
             now + PREVIOUS_JOB_SHARE_GRACE,
@@ -369,10 +365,7 @@ pub struct ShareSubmission {
     pub nonce: u32,
 }
 
-pub fn share_matches_current_job(
-    shared: &SharedMiningState,
-    share: &ShareSubmission,
-) -> bool {
+pub fn share_matches_current_job(shared: &SharedMiningState, share: &ShareSubmission) -> bool {
     shared
         .job
         .read()

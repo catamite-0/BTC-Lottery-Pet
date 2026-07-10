@@ -14,17 +14,14 @@ use serde_json::json;
 use tauri::AppHandle;
 
 use crate::mining_connection::connect_to_pool;
-#[cfg(test)]
-use crate::mining_diagnostics::diagnose_pool_connection;
 use crate::mining_events::{
     emit_runtime_event, emit_stats, emit_stopped_stats, MiningRuntimeEvent,
 };
 #[cfg(test)]
 use crate::mining_hash::{
-    benchmark_header_hash_paths, build_header, build_header_work, build_header_work_template,
-    cpu_kernel_hash_words, difficulty_from_hash, double_sha256, extranonce2_hex, found_block_event,
-    hash_meets_network_target, header_work_from_header, target_from_nbits, word_swapped_hex,
-    DIFF_ONE_TARGET,
+    build_header, build_header_work, build_header_work_template, difficulty_from_hash,
+    double_sha256, extranonce2_hex, found_block_event, hash_meets_network_target,
+    header_work_from_header, target_from_nbits, word_swapped_hex, DIFF_ONE_TARGET,
 };
 use crate::mining_log::log_message_for_session;
 #[cfg(test)]
@@ -37,9 +34,9 @@ use crate::mining_protocol::{
 use crate::mining_protocol::{
     pool_response_error, validate_share_difficulty, MAX_STRATUM_LINE_BYTES,
 };
-use crate::mining_settings::RealMiningSettings;
 #[cfg(test)]
-use crate::mining_settings::{validate_mainnet_address, CpuKernelMode, PoolDiagnosticSettings};
+use crate::mining_settings::validate_mainnet_address;
+use crate::mining_settings::RealMiningSettings;
 #[cfg(test)]
 use crate::mining_state::{
     share_matches_current_job, share_matches_valid_previous_job, JobTemplate,
@@ -460,10 +457,9 @@ mod tests {
         difficulty_from_hash, extranonce2_hex, found_block_event,
         handle_server_message_with_logger, hash_meets_network_target, read_stratum_line,
         target_from_nbits, validate_mainnet_address, validate_share_difficulty, word_swapped_hex,
-        BestDifficultyTracker, CpuKernelMode, JobTemplate, PendingShareSubmissions,
-        PoolDiagnosticSettings, ProtocolState, RealMiningSettings, SharedMiningState,
-        DIFF_ONE_TARGET, MAX_PENDING_SUBMISSIONS, MAX_SHARE_SUBMISSIONS_PER_TICK,
-        MAX_STRATUM_LINE_BYTES, PENDING_SHARE_TIMEOUT,
+        BestDifficultyTracker, JobTemplate, PendingShareSubmissions, ProtocolState,
+        RealMiningSettings, SharedMiningState, DIFF_ONE_TARGET, MAX_PENDING_SUBMISSIONS,
+        MAX_SHARE_SUBMISSIONS_PER_TICK, MAX_STRATUM_LINE_BYTES, PENDING_SHARE_TIMEOUT,
     };
     use crate::mining_log::{should_rotate_log, MAX_LOG_FILE_BYTES};
 
@@ -629,89 +625,6 @@ mod tests {
                 super::double_sha256(&candidate),
             );
         }
-    }
-    #[test]
-    fn cpu_kernel_modes_match_across_nonce_window() {
-        let job = JobTemplate {
-            generation: 1,
-            clean_jobs: true,
-            job_id: "job-cpu-kernel-mode".into(),
-            prev_hash: "00".repeat(32),
-            coinbase1: "01000000".into(),
-            coinbase2: "ffffffff".into(),
-            merkle_branches: vec!["11".repeat(32), "22".repeat(32)],
-            version: "20000000".into(),
-            nbits: "1d00ffff".into(),
-            network_target: target_from_nbits("1d00ffff").unwrap(),
-            ntime: "5f5e1000".into(),
-            extranonce1: "abcd".into(),
-            extranonce2_size: 4,
-            share_difficulty: 1.0,
-        };
-        let extranonce2 = extranonce2_hex(1, job.extranonce2_size);
-        let mut header = super::build_header(&job, &extranonce2).unwrap();
-        let work = super::header_work_from_header(&header).unwrap();
-        let mut midstate_hasher = crate::mining_kernel::ReusableMidstateHasher::new(&work.tail);
-
-        for nonce in [0, 1, 1024, 0x1234abcd, u32::MAX] {
-            let mut midstate_header = header.clone();
-            let midstate_words = super::cpu_kernel_hash_words(
-                CpuKernelMode::Midstate,
-                &mut midstate_header,
-                &work,
-                &mut midstate_hasher,
-                nonce,
-            );
-            let full_header_words = super::cpu_kernel_hash_words(
-                CpuKernelMode::FullHeader,
-                &mut header,
-                &work,
-                &mut midstate_hasher,
-                nonce,
-            );
-
-            assert_eq!(midstate_words, full_header_words);
-        }
-    }
-    #[test]
-    fn header_hash_benchmark_compares_full_and_midstate_windows() {
-        let job = JobTemplate {
-            generation: 1,
-            clean_jobs: true,
-            job_id: "job-midstate-bench".into(),
-            prev_hash: "00".repeat(32),
-            coinbase1: "01000000".into(),
-            coinbase2: "ffffffff".into(),
-            merkle_branches: vec!["11".repeat(32), "22".repeat(32)],
-            version: "20000000".into(),
-            nbits: "1d00ffff".into(),
-            network_target: target_from_nbits("1d00ffff").unwrap(),
-            ntime: "5f5e1000".into(),
-            extranonce1: "abcd".into(),
-            extranonce2_size: 4,
-            share_difficulty: 1.0,
-        };
-        let extranonce2 = extranonce2_hex(1, job.extranonce2_size);
-        let header = super::build_header(&job, &extranonce2).unwrap();
-        let benchmark = super::benchmark_header_hash_paths(&header, 2048).unwrap();
-
-        eprintln!(
-            "midstate benchmark: full={:.0} H/s, midstate={:.0} H/s, ratio={:.2}x, nonces={}",
-            benchmark.full_header_hashrate,
-            benchmark.midstate_hashrate,
-            benchmark.speedup_ratio,
-            benchmark.nonce_count,
-        );
-
-        assert_eq!(benchmark.nonce_count, 2048);
-        assert!(benchmark.full_header_duration_micros > 0);
-        assert!(benchmark.midstate_duration_micros > 0);
-        assert!(benchmark.full_header_hashrate.is_finite());
-        assert!(benchmark.full_header_hashrate > 0.0);
-        assert!(benchmark.midstate_hashrate.is_finite());
-        assert!(benchmark.midstate_hashrate > 0.0);
-        assert!(benchmark.speedup_ratio.is_finite());
-        assert!(benchmark.speedup_ratio > 0.0);
     }
 
     #[test]
@@ -1323,152 +1236,6 @@ mod tests {
         assert!(logs
             .iter()
             .any(|line| line.contains("low difficulty share")));
-        server.join().unwrap();
-    }
-
-    #[test]
-    fn pool_diagnostic_skips_authorization_without_address() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            stream
-                .set_write_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-
-            let subscribe = read_mock_line(&mut reader);
-            assert!(subscribe.contains("\"mining.subscribe\""));
-            super::write_message(
-                &mut stream,
-                &serde_json::json!({
-                    "id": 1,
-                    "result": [null, "abcd", 4],
-                    "error": null
-                }),
-            )
-            .unwrap();
-        });
-
-        let report = super::diagnose_pool_connection(PoolDiagnosticSettings {
-            pool_host: "127.0.0.1".into(),
-            pool_port: address.port(),
-            pool_password: String::new(),
-            btc_address: String::new(),
-            worker_name: "desk_1".into(),
-        });
-
-        assert_eq!(report.pool, address.to_string());
-        assert_eq!(
-            report
-                .steps
-                .iter()
-                .find(|step| step.name == "SUBSCRIBE")
-                .map(|step| step.status.as_str()),
-            Some("ok")
-        );
-        assert_eq!(
-            report
-                .steps
-                .iter()
-                .find(|step| step.name == "AUTHORIZE")
-                .map(|step| step.status.as_str()),
-            Some("skipped")
-        );
-        assert!(report.summary.contains("Add a BTC address"));
-        server.join().unwrap();
-    }
-
-    #[test]
-    fn pool_diagnostic_reports_successful_job_delivery() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            stream
-                .set_write_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-
-            let subscribe = read_mock_line(&mut reader);
-            assert!(subscribe.contains("\"mining.subscribe\""));
-            super::write_message(
-                &mut stream,
-                &serde_json::json!({
-                    "id": 1,
-                    "result": [null, "abcd", 4],
-                    "error": null
-                }),
-            )
-            .unwrap();
-
-            let authorize = read_mock_line(&mut reader);
-            assert!(authorize.contains("\"mining.authorize\""));
-            assert!(authorize.contains("desk_1"));
-            assert!(authorize.contains("d=1"));
-            super::write_message(
-                &mut stream,
-                &serde_json::json!({
-                    "id": 2,
-                    "result": true,
-                    "error": null
-                }),
-            )
-            .unwrap();
-            super::write_message(
-                &mut stream,
-                &serde_json::json!({
-                    "method": "mining.set_difficulty",
-                    "params": [0.001]
-                }),
-            )
-            .unwrap();
-            super::write_message(
-                &mut stream,
-                &serde_json::json!({
-                    "method": "mining.notify",
-                    "params": [
-                        "job-diagnostic",
-                        "0000000000000000000000000000000000000000000000000000000000000000",
-                        "00",
-                        "00",
-                        [],
-                        "20000000",
-                        "1d00ffff",
-                        "5f5e1000",
-                        true
-                    ]
-                }),
-            )
-            .unwrap();
-        });
-
-        let report = super::diagnose_pool_connection(PoolDiagnosticSettings {
-            pool_host: "127.0.0.1".into(),
-            pool_port: address.port(),
-            pool_password: " d=1 ".into(),
-            btc_address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into(),
-            worker_name: "desk_1".into(),
-        });
-
-        assert_eq!(report.summary, "Pool connection diagnostic passed.");
-        for step in &report.steps {
-            assert_eq!(
-                step.status, "ok",
-                "step {} failed: {}",
-                step.name, step.message
-            );
-        }
-        assert!(report
-            .steps
-            .iter()
-            .any(|step| step.name == "JOB" && step.message.contains("job-diagnostic")));
         server.join().unwrap();
     }
 

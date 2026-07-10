@@ -90,8 +90,8 @@ if (-not $SkipAudit) {
 
 if (-not $SkipRust) {
   if ($cargo) {
-    Invoke-Step "Rust tests" { & $cargo test --manifest-path "src-tauri\Cargo.toml" }
-    Invoke-Step "Rust clippy" { & $cargo clippy --manifest-path "src-tauri\Cargo.toml" -- -D warnings }
+    Invoke-Step "Rust tests" { & $cargo test --workspace --manifest-path "src-tauri\Cargo.toml" }
+    Invoke-Step "Rust clippy" { & $cargo clippy --workspace --all-targets --manifest-path "src-tauri\Cargo.toml" -- -D warnings }
   } elseif ($Strict) {
     throw "Rust checks require cargo, but cargo was not found."
   } else {

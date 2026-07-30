@@ -36,6 +36,13 @@ accept remote-control commands, or start mining automatically.
 
 It never requests or stores a BTC private key or seed phrase.
 
+## Download
+
+Tagged versions publish a Windows NSIS installer on the GitHub Releases page.
+Release assets are built by the repository's Windows workflow from the tagged
+source. Until a tagged installer is present, treat the repository as source
+code and a release candidate rather than a finished end-user download.
+
 ## CPU Mining Warning
 
 CPU mining uses CPU time, electricity, and network bandwidth. Desktop CPU
@@ -352,6 +359,13 @@ GitHub Actions runs the fast quality gate on push and pull request: production
 dependency audit, frontend helper tests, frontend build, Rust tests, and Rust
 Clippy with `-D warnings`. The Windows installer artifact job runs for `v*`
 tags or when the workflow is started manually with `build_installer=true`.
+Tag builds also publish the NSIS installer to the corresponding GitHub Release.
+Manual workflow runs keep the installer as an Actions artifact and do not
+publish a release.
+
+## License
+
+BTC Lottery Pet is available under the [MIT License](./LICENSE).
 
 Release builds use the Windows GUI subsystem, so the packaged app should not
 open an extra black console window next to the pet window. `npm run tauri:dev`

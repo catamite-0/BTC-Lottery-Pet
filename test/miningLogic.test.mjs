@@ -23,10 +23,6 @@ import {
   createShareEvent,
 } from "../.test-dist/domain/miningEvents.js";
 import {
-  calculateProbabilitySnapshot,
-  formatProbabilityTime,
-} from "../.test-dist/domain/probabilityEngine.js";
-import {
   nextJackpotPhase,
   startJackpotSequence,
 } from "../.test-dist/domain/jackpotSequence.js";
@@ -210,47 +206,28 @@ test("pet profile registry validates manifests and normalizes unknown ids", () =
   assert.equal(validation.errors.includes("states.Mining.animation is not supported"), true);
 });
 
-test("pet companion snapshot adds mood, care, and personality feedback", () => {
+test("pet companion snapshot maps runtime status to mood and personality feedback", () => {
   const profile = getPetProfile("classic-slot");
   const baseContext = {
     profile,
     petState: "IDLE",
     petStatus: "Sleeping",
-    isMining: false,
-    connectionStatus: "Stopped",
-    latestLog: "Ready",
     lastEvent: null,
-    acceptedShares: 0,
-    rejectedShares: 0,
-    bestDifficulty: 1,
-    hashrate: 0,
-    luckMeter: 0,
-    miningUptimeSeconds: 0,
-    appUptimeSeconds: 0,
   };
 
   const resting = derivePetCompanionSnapshot(baseContext);
   assert.equal(resting.name, "Bitty");
   assert.equal(resting.mood, "resting");
   assert.equal(resting.reaction, profile.personality.voice.idle);
-  assert.equal(resting.badges[0][0], "MOOD");
+  assert.equal(resting.ariaLabel, "Bitty, Resting Pocket slot miner");
 
   const overdrive = derivePetCompanionSnapshot({
     ...baseContext,
     petState: "MINING_CPU",
     petStatus: "Overdrive",
-    isMining: true,
-    connectionStatus: "Mining",
-    acceptedShares: 3,
-    bestDifficulty: 128,
-    hashrate: 1_000_000,
-    luckMeter: 68,
-    miningUptimeSeconds: 45,
   });
   assert.equal(overdrive.mood, "hyped");
-  assert.equal(overdrive.badges[2][1], "CPU");
-  assert.equal(overdrive.care.focus.value > resting.care.focus.value, true);
-  assert.equal(overdrive.care.bond.value > resting.care.bond.value, true);
+  assert.equal(overdrive.reaction, profile.personality.voice.overdrive);
 
   const rejected = derivePetCompanionSnapshot({
     ...baseContext,
@@ -414,24 +391,6 @@ test("mining events keep block candidates separate from jackpot UI events", () =
   assert.equal(candidate.type, "block_candidate");
   assert.equal(jackpot.type, "jackpot");
   assert.notDeepEqual(candidate.payload, jackpot.payload);
-});
-
-test("probability engine exposes display-only luck and ETA", () => {
-  const snapshot = calculateProbabilitySnapshot({
-    currentDifficulty: 1000,
-    hashrate: 2 ** 32,
-    bestDifficulty: 64,
-    acceptedShares: 3,
-    rejectedShares: 1,
-    miningUptimeSeconds: 3600,
-  });
-
-  assert.equal(snapshot.currentDifficulty, 1000);
-  assert.equal(snapshot.estimatedTimeToBlockSeconds, 1000);
-  assert.equal(snapshot.streakCounter, 2);
-  assert.equal(snapshot.luckMeter > 0, true);
-  assert.equal(formatProbabilityTime(null), "Waiting");
-  assert.equal(formatProbabilityTime(7200), "2 hours");
 });
 
 test("jackpot sequence advances through the required presentation phases", () => {

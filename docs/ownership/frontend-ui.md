@@ -1,6 +1,6 @@
 # Frontend UI Ownership
 
-Use this scope for visual layout, interaction states, settings ergonomics, and pet/dashboard presentation.
+Use this scope for visual layout, interaction states, settings ergonomics, and pet/overview presentation.
 
 Primary paths:
 
@@ -11,7 +11,7 @@ Primary paths:
 
 Allowed changes:
 
-- Dashboard, widget, settings, pet, jackpot, and warning UI
+- Mining overview, expandable details, settings, pet, jackpot, and warning UI
 - CSS layout, responsive behavior, and display text
 - Frontend view-model shaping when backend contracts stay unchanged
 

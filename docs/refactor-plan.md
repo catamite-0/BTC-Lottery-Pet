@@ -20,9 +20,9 @@ must not be treated as active requirements.
   commands for removed compute paths.
 - The frontend has one engine path for CPU mining through the Rust backend.
 - Real CPU mining events are session-scoped. The frontend ignores stale
-  session payloads and session-scoped `mining-log` payloads, and treats
-  structured `mining-event` payloads, not log text, as the authoritative runtime
-  state source.
+  structured stats and runtime payloads, while the backend keeps `mining.log`
+  on disk. Structured `mining-event` payloads, not log text, are the
+  authoritative runtime state source.
 - Diagnostics now export app metadata, sanitized config, a CPU kernel benchmark,
   log path, recent log lines, latest connection error, and frontend CPU runtime
   summary. `COPY DIAG` is clipboard troubleshooting text; `SAVE DIAG` writes a
@@ -60,13 +60,13 @@ Frontend:
 src/
   app/                  app defaults, dashboard view models, and shell layout
   app/shell/            window shell, header, and top-level UI composition
-  features/dashboard/   dashboard and compact widget presentation
+  features/dashboard/   mining overview, Details, controls, and log actions
   features/settings/    settings panel and focused settings sections
   features/pet/         pet display presentation
   features/mining/      mining-specific UI prompts
   features/jackpot/     block-candidate dialog
   contracts/            DTOs and Tauri command contracts
-  domain/               pure mining, pet, probability, and diagnostics helpers
+  domain/               pure mining and pet-state helpers
   engines/              CPU mining engine facade
   hooks/                app runtime orchestration
   platform/tauri/       all Tauri invoke wrappers

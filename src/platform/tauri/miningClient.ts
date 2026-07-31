@@ -2,7 +2,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   MiningBlockFoundPayload,
-  MiningLogPayload,
   MiningRuntimeEventPayload,
   RealMiningStats,
   StartRealMiningSettings,
@@ -15,10 +14,6 @@ export interface TauriPayloadEvent<T> {
 
 export function listenToMiningStats(handler: (event: TauriPayloadEvent<RealMiningStats>) => void) {
   return listen<RealMiningStats>(TAURI_EVENTS.miningStats, handler);
-}
-
-export function listenToMiningLogs(handler: (event: TauriPayloadEvent<string | MiningLogPayload>) => void) {
-  return listen<string | MiningLogPayload>(TAURI_EVENTS.miningLog, handler);
 }
 
 export function listenToMiningRuntimeEvents(handler: (event: TauriPayloadEvent<MiningRuntimeEventPayload>) => void) {

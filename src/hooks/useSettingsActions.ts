@@ -1,5 +1,4 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { DevLogEntry } from "../domain/miningLogs";
 import { formatError } from "../formatting";
 import { saveConfig } from "../platform/tauri/configClient";
 import {
@@ -17,7 +16,6 @@ interface UseSettingsActionsOptions {
   setShowSettings: Dispatch<SetStateAction<boolean>>;
   setErrorMessage: Dispatch<SetStateAction<string | null>>;
   appendPetLog: (message: string) => void;
-  appendDevLog: (source: DevLogEntry["source"], message: string) => void;
 }
 
 export function useSettingsActions({
@@ -29,7 +27,6 @@ export function useSettingsActions({
   setShowSettings,
   setErrorMessage,
   appendPetLog,
-  appendDevLog,
 }: UseSettingsActionsOptions) {
   const saveSettings = async () => {
     setErrorMessage(null);
@@ -37,7 +34,6 @@ export function useSettingsActions({
     const adaptation = adaptConfigForHardware(draftConfig, systemInfo);
     const settings = adaptation.config;
     if (adaptation.messages.length > 0) {
-      appendDevLog("system", `Settings adapted for this device: ${adaptation.messages.join(" ")}`);
       appendPetLog("Settings adjusted for this device.");
     }
 

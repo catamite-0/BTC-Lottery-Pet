@@ -15,13 +15,19 @@
 - Updated application and installer metadata to `0.9.0`; local and CI gates now
   reject application, changelog, or tag mismatches and generate a SHA-256 file
   alongside the Windows installer.
-- Made Settings tabs size themselves from the actual tab count and use a 2x2
-  layout in the narrow default window.
+- Replaced the four Settings sections with keyboard-friendly Basic and Advanced
+  tabs, including modal focus management and safe narrow-window scrolling.
 - Added a Codex cloud setup and portable verification path with repository
   instructions and pinned Node/Rust toolchains.
 - Split read-only pull-request CI from Windows installer production. Tagged
   builds now verify and attest one immutable artifact before creating a draft
   GitHub Release for manual smoke-test approval.
+- Consolidated the separate Widget and Dashboard branches into one mining
+  overview with an optional Details panel backed only by real runtime data.
+- Reorganized Settings into Basic pool/CPU/notification choices and Advanced
+  connection, thread, and alert controls.
+- Rebuilt the frontend stylesheet around the current product surface, removing
+  accumulated override layers while preserving pet and jackpot animations.
 
 ### Removed
 
@@ -30,6 +36,14 @@
   hash path. Local Windows notifications and block-candidate records remain.
 - Removed extra pet profiles from the current prototype and dropped the unused
   `ureq` network dependency.
+- Removed synthetic Luck, Streak, ETA, and pet-care scores, plus the idle
+  app-uptime refresh that existed only to animate those display values.
+- Removed third-party block-height polling and the corresponding external CSP
+  allowances; the app no longer makes decorative HTTP requests while idle.
+- Removed the static Pet Settings preview because `classic-slot` is the only
+  built-in profile in the current product.
+- Removed the unused frontend `mining-log` listener and in-memory dev-log
+  counters; backend file logging, rotation, and Open Logs remain unchanged.
 
 ### Hardened
 

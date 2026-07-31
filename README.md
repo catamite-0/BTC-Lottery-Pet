@@ -10,7 +10,8 @@ mining only. This project does not promise or guarantee any financial return.
 ## Features
 
 - 420x560 resizable desktop pet window with a 360x360 minimum size.
-- Toggleable Widget and Dashboard views.
+- One focused mining overview with an optional Details panel for connection,
+  session, system, and log information.
 - Always-on-top window with a user-controlled `PIN` / `FREE` toggle.
 - System tray icon with `Show`, `Hide`, `Open Logs`, and `Quit`.
 - CPU-only mining workflow with a warning for high CPU settings.
@@ -62,7 +63,12 @@ current documentation before mining.
 
 ## Supported Pool Presets
 
-The settings panel includes:
+Basic settings include the BTC address, a pool preset, a CPU performance
+preset, and the master notification switch. Advanced settings contain custom
+host, port, worker, password hint, CPU thread count, and individual alert
+controls.
+
+The pool presets are:
 
 | Pool host | Port | Notes |
 | --- | ---: | --- |
@@ -70,9 +76,9 @@ The settings panel includes:
 | `pool.nerdminer.io` | `3333` | NerdMiner community pool endpoint. This client can use it as a plain Stratum v1 fallback after you review its current terms and status. |
 | `pool.nerdminers.org` | `3333` | Official NerdMiner community pool. Verify compatibility before using this desktop client. |
 
-The presets are convenience defaults, not availability guarantees. The pool
-host field remains editable so you can use another trusted Stratum v1 solo pool
-after reviewing its documentation.
+The presets are convenience defaults, not availability guarantees. Select
+`Custom`, then edit the advanced host and port fields to use another trusted
+Stratum v1 solo pool after reviewing its documentation.
 
 The default worker username sent to the pool is:
 
@@ -149,11 +155,12 @@ rejects non-positive and pathologically low share difficulties, validates
 Stratum job hex fields before worker dispatch, and discards invalid active jobs
 with an `Invalid Pool Job` runtime event.
 
-Mining logs are event-driven rather than hash-driven. The app logs connection,
-authorization, job, share, stop, warning, and error events; it does not emit UI
-events for every hash or nonce. Mining log payloads carry session IDs, and the
-frontend ignores stale session logs after a newer start. When `STOP` is clicked,
-the backend logs
+Mining logs are event-driven rather than hash-driven. The backend logs
+connection, authorization, job, share, stop, warning, and error events to the
+rotating `mining.log`; it does not log every hash or nonce. The frontend does
+not subscribe to the live mining-log stream. It filters structured stats,
+runtime events, and block events by active session, while the full file log is
+available through `Open logs`. When `STOP` is clicked, the backend logs
 `Mining stop requested`, sets the stop signal immediately, stops sending queued
 shares once the signal is observed, waits for the Stratum thread and CPU workers
 to finish, then emits a zero-hashrate `Stopped` stats snapshot. The frontend
@@ -308,8 +315,8 @@ Closing the pet window with `X` hides it to the system tray. It does not start
 or stop mining by itself. Use the tray `Show` item or left-click the tray icon
 to show the window again. Use `Quit` from the tray menu to exit the app.
 
-The tray `Open Logs` item and the Dashboard `OPEN LOGS` button open the
-app-specific log folder. The Dashboard `COPY LOG PATH` button copies that
+The tray `Open Logs` item and the Details panel's `Open logs` button open the
+app-specific log folder. The Details panel's `Copy path` button copies that
 local log folder path. The regular mining log is `mining.log`; if a block
 candidate is detected, the event is also saved as a timestamped
 `found_block_*.json` file.
@@ -425,8 +432,8 @@ Before each release, verify:
 5. The release executable uses the Windows GUI subsystem and should not open an
    extra black console window. The development command `npm run tauri:dev` can
    still keep its development terminal open; that is expected.
-6. Dashboard `OPEN LOGS` opens the local app log folder and `COPY LOG PATH`
-   copies that folder path.
+6. Details `Open logs` opens the local app log folder and `Copy path` copies
+   that folder path.
 7. Complete the manual checks in [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)
    before publishing the draft Release or distributing the installer, and
    record skipped checks with reasons in the release notes.

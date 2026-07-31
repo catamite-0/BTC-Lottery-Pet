@@ -58,12 +58,12 @@ workflow creates a checksum, uploads assets, or creates a draft Release.
 - [ ] Open `http://127.0.0.1:1420`.
 - [ ] Confirm the browser-only React UI renders with no console errors.
 - [ ] Open Settings.
-- [ ] Save settings with a custom worker and pool preset, and confirm the
-      browser fallback updates the current view without desktop persistence.
-- [ ] Switch display modes between compact and detail.
-- [ ] Confirm Dashboard metric groups (`Network`, `Session`, `Connection`,
-      `System`) and Settings pet previews render without overlap at narrow
-      widths.
+- [ ] Save Basic settings with a pool preset, then save Advanced settings with
+      a custom host, worker, and CPU thread count. Confirm the browser fallback
+      updates the current view without desktop persistence.
+- [ ] Expand and collapse `Details` from the Overview.
+- [ ] Confirm the Overview summary and Details groups (`Connection`, `Session`,
+      `System`) render without overlap at narrow widths.
 
 ## Real CPU Mining Smoke
 
@@ -74,22 +74,22 @@ not use a private or sensitive worker label.
 - [ ] Real CPU mining receives a job and updates connection status to `Mining`.
 - [ ] `STOP` emits a stopped stats snapshot and hash rate returns to zero.
 - [ ] Repeated START/STOP cycles do not leave stale pending shares.
-- [ ] Repeated START/STOP cycles do not show old-session log lines after the new
-      session starts.
+- [ ] Repeated START/STOP cycles do not apply old-session structured stats,
+      runtime events, or block events after the new session starts.
 - [ ] Invalid pool host shows a local validation message before startup.
 - [ ] Invalid worker name shows a local validation message before startup.
 - [ ] Connection loss eventually enters a retrying state and logs the reason.
-- [ ] Detail Mode `OPEN LOGS` opens the log folder.
-- [ ] Detail Mode `COPY LOG PATH` copies the log folder path.
+- [ ] Details `Open logs` opens the log folder.
+- [ ] Details `Copy path` copies the log folder path.
 
 ## CPU Runtime Smoke
 
 - [ ] Eco, Normal, Turbo, and Custom presets map to expected CPU thread counts.
 - [ ] A custom thread count cannot exceed the detected logical CPU maximum.
 - [ ] High CPU warning appears for Turbo or high Custom starts.
-- [ ] Detail Mode reports hashrate, accepted/rejected shares, best difficulty,
-      uptime, job id, and connection status.
-- [ ] Detail Mode reports stale share drops and queued share drops.
+- [ ] The Overview reports hashrate, accepted/rejected shares, best difficulty,
+      mining time, and connection status.
+- [ ] Details reports job ID, stale share drops, and queued share drops.
 
 ## Notifications Smoke
 

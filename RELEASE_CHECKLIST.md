@@ -11,9 +11,16 @@ desktop behavior that CI cannot safely prove.
 - [ ] `npm ci`
 - [ ] `npm run verify:cloud`
 - [ ] `.\scripts\verify.ps1 -Strict`
-- [ ] Build the installer with `.\scripts\verify.ps1 -Strict -BuildInstaller`
-      after the strict gate has passed. If using `npm run tauri:build`
-      directly, then run `.\scripts\write-installer-checksums.ps1`.
+- [ ] Build an unsigned local smoke-test installer with
+      `.\scripts\verify.ps1 -Strict -BuildInstaller -DeferInstallerChecksum`
+      after the strict gate has passed. Do not treat this one-stage build as a
+      production release.
+- [ ] For production, follow the two-stage Azure flow: build and sign the inner
+      executable, bundle NSIS from it, then sign the final installer.
+- [ ] After final installer signing, run
+      `.\scripts\verify-installer-signature.ps1 -InstallerPath <installer> -ExpectedSignerSubject "<full certificate subject>"`,
+      then run `.\scripts\write-installer-checksums.ps1`. The guard must report
+      an embedded signature, matching publisher identity, and trusted timestamp.
 - [ ] Confirm the NSIS directory contains exactly the current-version installer
       and its `.sha256` file. The checksum script must fail if stale installer
       or checksum files remain.
@@ -25,8 +32,11 @@ For failure isolation, the strict gate covers version and changelog consistency,
 `cargo clippy --locked --workspace --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`.
 
 GitHub Actions runs `Windows full gate` on `main` and pull requests. Manually
-starting `Windows Release` builds and attests an artifact without creating a
-Release. A strict `vX.Y.Z` tag contained in `main` creates a draft Release only.
+starting `Windows Release` builds and attests an explicitly named
+`UNSIGNED-TEST-ONLY` artifact containing `UNSIGNED-TEST-ONLY.txt`, without
+creating a Release. A strict `vX.Y.Z` tag contained in `main` must pass the
+embedded, timestamped Authenticode and configured-publisher guard before the
+workflow creates a checksum, uploads assets, or creates a draft Release.
 
 ## Installer Smoke
 
@@ -117,8 +127,11 @@ not use a private or sensitive worker label.
       and matching `.sha256` file.
 - [ ] Confirm the release remained a draft throughout asset verification.
 - [ ] Verify the GitHub artifact attestation for both release assets.
-- [ ] Record the installer Authenticode signature status. Do not describe a
-      checksum or GitHub attestation as Windows code signing.
+- [ ] For a release asset, confirm the installer has an embedded Authenticode
+      signature with status `Valid`, its publisher subject exactly matches the
+      configured Azure signing identity, and a trusted timestamp is present. An
+      unsigned manual-run test artifact is never release eligible. Do not
+      describe a checksum or GitHub attestation as Windows code signing.
 - [ ] Publish the draft manually only after the installer smoke checks pass.
 - [ ] Restate that this is a local CPU-only release with plain Stratum v1 TCP
       and no TLS, Stratum v2, proxy, failover, remote control, or browser

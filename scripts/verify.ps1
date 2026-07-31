@@ -2,11 +2,16 @@ param(
   [switch]$Strict,
   [switch]$SkipAudit,
   [switch]$SkipRust,
-  [switch]$BuildInstaller
+  [switch]$BuildInstaller,
+  [switch]$DeferInstallerChecksum
 )
 
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\tooling.ps1"
+
+if ($DeferInstallerChecksum -and -not $BuildInstaller) {
+  throw "DeferInstallerChecksum requires BuildInstaller."
+}
 
 $repoRoot = Get-RepoRoot
 Set-Location $repoRoot
@@ -107,8 +112,13 @@ if ($BuildInstaller) {
     throw "Installer build requires npm/Tauri CLI, but npm was not found."
   }
   Invoke-Step "Tauri installer build" { & $npm run tauri:build }
-  Invoke-Step "Installer checksum" {
-    & "$repoRoot\scripts\write-installer-checksums.ps1"
+  if ($DeferInstallerChecksum) {
+    Write-Host ""
+    Write-Host "Installer checksum deferred until signing policy validation." -ForegroundColor Yellow
+  } else {
+    Invoke-Step "Installer checksum" {
+      & "$repoRoot\scripts\write-installer-checksums.ps1"
+    }
   }
 }
 

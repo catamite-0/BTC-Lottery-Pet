@@ -81,9 +81,13 @@ jobs:
       - name: Check Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
+      - name: Test Authenticode release guard
+        shell: pwsh
+        run: .\scripts\test-installer-signature-guard.ps1
+
       - name: Run full release gate and build installer
         shell: pwsh
-        run: .\scripts\verify.ps1 -Strict -BuildInstaller
+        run: .\scripts\verify.ps1 -Strict -BuildInstaller -DeferInstallerChecksum
 
       - name: Read release metadata
         id: metadata
@@ -93,7 +97,11 @@ jobs:
           $package = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
           $version = [string]$package.version
           $installerName = "BTC Lottery Pet_${version}_x64-setup.exe"
-          $artifactName = "btc-lottery-pet-$version-windows-x64"
+          $artifactName = if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch") {
+            "btc-lottery-pet-$version-windows-x64-UNSIGNED-TEST-ONLY"
+          } else {
+            "btc-lottery-pet-$version-windows-x64"
+          }
 
           "version=$version" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
@@ -101,6 +109,67 @@ jobs:
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "artifact_name=$artifactName" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Enforce installer Authenticode policy
+        shell: pwsh
+        env:
+          ASSET_DIR: src-tauri/target/release/bundle/nsis
+          INSTALLER_NAME: ${{ steps.metadata.outputs.installer_name }}
+          EXPECTED_SIGNER_SUBJECT: ${{ vars.AZURE_ARTIFACT_SIGNING_SUBJECT }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installerPath = Join-Path $env:ASSET_DIR $env:INSTALLER_NAME
+
+          if ($env:GITHUB_EVENT_NAME -eq "push") {
+            if ([string]::IsNullOrWhiteSpace($env:EXPECTED_SIGNER_SUBJECT)) {
+              throw "Repository variable AZURE_ARTIFACT_SIGNING_SUBJECT is required for tagged releases."
+            }
+
+            $result = & .\scripts\verify-installer-signature.ps1 `
+              -InstallerPath $installerPath `
+              -ExpectedSignerSubject $env:EXPECTED_SIGNER_SUBJECT
+            if (-not $result.ReleaseEligible) {
+              throw "Tagged installer did not pass release-eligible signature validation."
+            }
+          } else {
+            $result = & .\scripts\verify-installer-signature.ps1 `
+              -InstallerPath $installerPath `
+              -AllowUnsignedTestArtifact
+            if ($result.ReleaseEligible) {
+              throw "Manual-dispatch artifacts must never be release eligible."
+            }
+            if ($result.Status -ne "NotSigned") {
+              throw "Manual dispatch is restricted to unsigned test artifacts until Azure signing is configured."
+            }
+
+            $markerPath = Join-Path $env:ASSET_DIR "UNSIGNED-TEST-ONLY.txt"
+            $markerText = @(
+              "UNSIGNED TEST ARTIFACT ONLY"
+              ""
+              "This workflow_dispatch artifact is never release eligible."
+              "The installer is not Authenticode signed."
+              "Do not publish or distribute it."
+            ) -join "`r`n"
+            [IO.File]::WriteAllText(
+              $markerPath,
+              "$markerText`r`n",
+              [Text.UTF8Encoding]::new($false)
+            )
+
+            Write-Host "::warning title=Unsigned test artifact::This manual-run installer is unsigned and must not be published or distributed."
+            "## Unsigned test artifact" |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            "" |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            "The artifact includes `UNSIGNED-TEST-ONLY.txt`; it is retained for build and smoke-test evidence only and must not be published or distributed." |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }
+
+      - name: Write checksum after final signature validation
+        shell: pwsh
+        run: |
+          .\scripts\write-installer-checksums.ps1 `
+            -InstallerDirectory src-tauri/target/release/bundle/nsis
 
       - name: Validate exact release assets
         shell: pwsh
@@ -116,10 +185,21 @@ jobs:
           $expectedNames = @(
             $env:INSTALLER_NAME
             "$($env:INSTALLER_NAME).sha256"
-          ) | Sort-Object
+          )
+          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch") {
+            $markerName = "UNSIGNED-TEST-ONLY.txt"
+            $expectedNames += $markerName
+            $markerPath = Join-Path $assetDir $markerName
+            $expectedMarkerHash = "d8d3ad11897be84a8ec451573979dc61d5211bec2224ecc243be18e19c172d19"
+            $actualMarkerHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $markerPath).Hash.ToLowerInvariant()
+            if (-not [string]::Equals($expectedMarkerHash, $actualMarkerHash, [StringComparison]::Ordinal)) {
+              throw "The unsigned-test marker content is invalid."
+            }
+          }
+          $expectedNames = @($expectedNames | Sort-Object)
 
           $actualNames = @(
-            Get-ChildItem -LiteralPath $assetDir -File |
+            Get-ChildItem -LiteralPath $assetDir -Force |
               Select-Object -ExpandProperty Name |
               Sort-Object
           )
@@ -152,9 +232,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.metadata.outputs.artifact_name }}
-          path: |
-            src-tauri/target/release/bundle/nsis/${{ steps.metadata.outputs.installer_name }}
-            src-tauri/target/release/bundle/nsis/${{ steps.metadata.outputs.installer_name }}.sha256
+          path: src-tauri/target/release/bundle/nsis/
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -192,10 +270,21 @@ jobs:
           $expectedNames = @(
             $env:INSTALLER_NAME
             "$($env:INSTALLER_NAME).sha256"
-          ) | Sort-Object
+          )
+          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch") {
+            $markerName = "UNSIGNED-TEST-ONLY.txt"
+            $expectedNames += $markerName
+            $markerPath = Join-Path $assetDir $markerName
+            $expectedMarkerHash = "d8d3ad11897be84a8ec451573979dc61d5211bec2224ecc243be18e19c172d19"
+            $actualMarkerHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $markerPath).Hash.ToLowerInvariant()
+            if (-not [string]::Equals($expectedMarkerHash, $actualMarkerHash, [StringComparison]::Ordinal)) {
+              throw "The unsigned-test marker content is invalid."
+            }
+          }
+          $expectedNames = @($expectedNames | Sort-Object)
 
           $actualNames = @(
-            Get-ChildItem -LiteralPath $assetDir -File |
+            Get-ChildItem -LiteralPath $assetDir -Force |
               Select-Object -ExpandProperty Name |
               Sort-Object
           )
@@ -224,12 +313,10 @@ jobs:
             throw "The downloaded installer checksum does not match."
           }
 
-      - name: Attest installer and checksum
+      - name: Attest exact artifact files
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
-          subject-path: |
-            release-assets/${{ needs.build-installer.outputs.installer_name }}
-            release-assets/${{ needs.build-installer.outputs.installer_name }}.sha256
+          subject-path: release-assets/*
 
   create-draft-release:
     name: Create draft GitHub Release
@@ -258,8 +345,8 @@ jobs:
           name: BTC Lottery Pet ${{ github.ref_name }}
           body: |
             Automated draft release. Do not publish until the checksum,
-            artifact attestation, installer smoke test, and unsigned-binary
-            warning have been reviewed.
+            artifact attestation, valid timestamped Authenticode signature,
+            and installer smoke test have been reviewed.
           draft: true
           prerelease: false
           generate_release_notes: true

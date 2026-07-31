@@ -346,9 +346,12 @@ and changelog versions, production dependencies, frontend tests/build, and the
 locked Rust workspace tests and Clippy with `-D warnings`.
 
 The separate Windows Release workflow builds the installer once. A manual run
-stores only a verified Actions artifact. A strict `vX.Y.Z` tag contained in
-`main` additionally creates a **draft** GitHub Release from that same downloaded
-artifact after checksum verification and provenance attestation. Only the final
+stores an explicitly named `UNSIGNED-TEST-ONLY` Actions artifact, including an
+in-archive warning marker, and never creates a Release. A strict `vX.Y.Z` tag
+contained in `main` fails before checksum creation or upload unless the final
+installer has a valid, timestamped, embedded Authenticode signature from the
+configured publisher identity. A passing tag creates a **draft** GitHub Release
+after checksum verification and provenance attestation. Only the final
 draft-release job receives `contents: write`; no workflow publishes the draft
 automatically.
 
@@ -410,9 +413,13 @@ Before each release, verify:
 2. `.\scripts\verify.ps1 -Strict` passes. This is the local release gate for
    version and changelog consistency, production dependency audit, frontend
    tests, frontend build, and locked Rust tests and Clippy with `-D warnings`.
-3. `.\scripts\verify.ps1 -Strict -BuildInstaller` produces the Windows
-   executable, NSIS installer, and `.sha256` file. After a direct
-   `npm run tauri:build`, run `.\scripts\write-installer-checksums.ps1`.
+3. `.\scripts\verify.ps1 -Strict -BuildInstaller -DeferInstallerChecksum`
+   produces an unsigned local smoke-test installer without a checksum. A
+   production release must follow the two-stage inner-executable and outer-NSIS
+   signing order in [`docs/cloud-development.md`](./docs/cloud-development.md).
+   After the final installer is signed, run the signature guard with the exact
+   expected signer subject, then run
+   `.\scripts\write-installer-checksums.ps1`. Never checksum before signing.
 4. Before creating a tag, replace `Unreleased` in the first `CHANGELOG.md`
    release heading with the release date; the tag gate rejects it otherwise.
 5. The release executable uses the Windows GUI subsystem and should not open an

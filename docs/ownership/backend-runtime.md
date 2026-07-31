@@ -1,6 +1,6 @@
 # Backend Runtime Ownership
 
-Use this scope for Stratum runtime behavior, worker orchestration, logging, share submission, and pool diagnostics.
+Use this scope for Stratum runtime behavior, worker orchestration, logging, and share submission.
 
 Primary paths:
 

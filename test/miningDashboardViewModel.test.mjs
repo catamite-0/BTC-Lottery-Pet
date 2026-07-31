@@ -36,9 +36,6 @@ function validConfig(overrides = {}) {
     notify_on_jackpot: true,
     notify_on_share_accepted: false,
     notify_on_connection_error: true,
-    heartbeat_interval: "off",
-    notification_channel: "local_windows_toast",
-    webhook_url: "",
     pet_profile_id: DEFAULT_PET_PROFILE_ID,
     ...overrides,
   };

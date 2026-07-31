@@ -22,17 +22,16 @@ import {
   runningInTauri,
 } from "./app/appDefaults";
 import { useBlockHeight } from "./hooks/useBlockHeight";
-import { useAppDiagnosticsActions } from "./hooks/useAppDiagnosticsActions";
+import { useLogActions } from "./hooks/useLogActions";
 import { useJackpotFlow } from "./hooks/useJackpotFlow";
 import { useMiningEvents } from "./hooks/useMiningEvents";
-import { useHeartbeatNotifications } from "./hooks/useHeartbeatNotifications";
 import { useStartupState } from "./hooks/useStartupState";
-import { useRuntimeAlgorithmSnapshot } from "./hooks/useRuntimeAlgorithmSnapshot";
 import { useMiningSessionControls } from "./hooks/useMiningSessionControls";
 import { useSettingsActions } from "./hooks/useSettingsActions";
 import { useWindowShellControls } from "./hooks/useWindowShellControls";
 import { notificationSettingsFromConfig } from "./notificationSettings";
 import { getPetProfile } from "./pets/profiles";
+import { threadsForPreset } from "./miningLogic";
 import type {
   AppConfig,
   PetStatus,
@@ -77,8 +76,6 @@ function App() {
   const coolingDownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const configRef = useLatestRef(config);
   const realStatsRef = useLatestRef(realStats);
-  const appUptimeRef = useLatestRef(appUptime);
-  const miningUptimeRef = useLatestRef(miningUptime);
   const isMiningRef = useLatestRef(isMining);
   const activeMiningSessionIdRef = useLatestRef(activeMiningSessionId);
 
@@ -160,18 +157,15 @@ function App() {
     emitMiningEvent,
   });
 
-  useHeartbeatNotifications({
-    config,
-    configRef,
-    realStatsRef,
-    appUptimeRef,
-    miningUptimeRef,
-    isMiningRef,
-  });
-
   // Track New Best Difficulty
   const activeBestDiff = realStats.best_difficulty;
   const prevBestDiffRef = useRef(0);
+
+  useEffect(() => {
+    if (activeMiningSessionId !== null) {
+      prevBestDiffRef.current = 0;
+    }
+  }, [activeMiningSessionId]);
 
   useEffect(() => {
     if (!isMining) {
@@ -188,11 +182,7 @@ function App() {
     }
   }, [activeBestDiff, appendPetLog, isMining]);
 
-  const {
-    poolDiagnosticResult,
-    saveSettings,
-    runPoolDiagnostic,
-  } = useSettingsActions({
+  const { saveSettings } = useSettingsActions({
     runningInTauri,
     draftConfig,
     systemInfo,
@@ -232,40 +222,13 @@ function App() {
 
   const acceptedShares = realStats.accepted_shares;
   const rejectedShares = realStats.rejected_shares;
-  const {
-    effectiveCpuThreads,
-    observedEfficiencyHashrate,
-    observedCpuThreads,
-    runtimeDiagnosticElapsedSeconds,
-    runtimeDiagnosticShareCounters,
-    runtimeAlgorithmDiagnostic,
-  } = useRuntimeAlgorithmSnapshot({
-    config,
-    systemInfo,
-    isMining,
-    miningUptime,
-    realStats,
-    activeRuntimeProfile,
-    acceptedShares,
-    rejectedShares,
-  });
-  const {
-    openLogs,
-    copyLogPath,
-    copyDiagnostics,
-    saveDiagnostics,
-  } = useAppDiagnosticsActions({
+  const effectiveCpuThreads = activeRuntimeProfile
+    ? activeRuntimeProfile.cpuThreads
+    : threadsForPreset(config.performance_preset, systemInfo, Number(config.cpu_threads));
+  const { openLogs, copyLogPath } = useLogActions({
     runningInTauri,
     setErrorMessage,
     appendPetLog,
-    devLogs,
-    config,
-    systemInfo,
-    observedEfficiencyHashrate,
-    observedCpuThreads,
-    runtimeDiagnosticElapsedSeconds,
-    runtimeDiagnosticShareCounters,
-    effectiveCpuThreads,
   });
   const {
     miningEngine,
@@ -277,7 +240,6 @@ function App() {
     runningInTauri,
     config,
     systemInfo,
-    runtimeAlgorithmDiagnostic,
     isMining,
     petState,
     isMiningRef,
@@ -350,8 +312,6 @@ function App() {
       latestLog={latestLog}
       openLogs={openLogs}
       copyLogPath={copyLogPath}
-      copyDiagnostics={copyDiagnostics}
-      saveDiagnostics={saveDiagnostics}
       effectiveCpuThreads={effectiveCpuThreads}
       errorMessage={errorMessage}
       setErrorMessage={setErrorMessage}
@@ -363,13 +323,6 @@ function App() {
       draftConfig={draftConfig}
       setDraftConfig={setDraftConfig}
       saveSettings={saveSettings}
-      runPoolDiagnostic={runPoolDiagnostic}
-      observedEfficiencyHashrate={observedEfficiencyHashrate}
-      runtimeDiagnosticElapsedSeconds={runtimeDiagnosticElapsedSeconds}
-      observedCpuThreads={observedCpuThreads}
-      acceptedShares={acceptedShares}
-      rejectedShares={rejectedShares}
-      poolDiagnosticResult={poolDiagnosticResult}
       systemInfo={systemInfo}
       hardwareReady={hardwareReady}
       jackpotVisible={jackpotVisible}

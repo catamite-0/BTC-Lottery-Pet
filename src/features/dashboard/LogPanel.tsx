@@ -2,16 +2,12 @@ interface LogPanelProps {
   latestLog: string;
   openLogs: () => Promise<void>;
   copyLogPath: () => Promise<void>;
-  copyDiagnostics: () => Promise<void>;
-  saveDiagnostics: () => Promise<void>;
 }
 
 export default function LogPanel({
   latestLog,
   openLogs,
   copyLogPath,
-  copyDiagnostics,
-  saveDiagnostics,
 }: LogPanelProps) {
   return (
     <section className="dashboard-log-panel" aria-label="Mining log tools">
@@ -27,12 +23,6 @@ export default function LogPanel({
         </button>
         <button className="mini-button" onClick={() => void copyLogPath()} type="button">
           Copy path
-        </button>
-        <button className="mini-button" onClick={() => void copyDiagnostics()} type="button">
-          Copy diag
-        </button>
-        <button className="mini-button" onClick={() => void saveDiagnostics()} type="button">
-          Save diag
         </button>
       </div>
     </section>

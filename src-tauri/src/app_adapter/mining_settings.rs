@@ -1,16 +1,11 @@
 use std::{str::FromStr, thread};
 
 use bitcoin::{Address, Network};
-pub use btc_hash_core::CpuKernelMode;
 pub use btc_mining_core::MiningStats;
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_POOL_PASSWORD: &str = "x";
 const MAX_POOL_PASSWORD_BYTES: usize = 128;
-
-pub(crate) fn selected_cpu_kernel_mode() -> CpuKernelMode {
-    CpuKernelMode::Midstate
-}
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,84 +77,12 @@ impl RealMiningSettings {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PoolDiagnosticSettings {
-    pub pool_host: String,
-    pub pool_port: u16,
-    #[serde(default)]
-    pub pool_password: String,
-    pub btc_address: String,
-    pub worker_name: String,
-}
-
-impl PoolDiagnosticSettings {
-    pub(crate) fn normalized(&self) -> Self {
-        Self {
-            pool_host: self.pool_host.trim().to_owned(),
-            pool_port: self.pool_port,
-            pool_password: normalize_pool_password(&self.pool_password),
-            btc_address: self.btc_address.trim().to_owned(),
-            worker_name: self.worker_name.trim().to_owned(),
-        }
-    }
-
-    pub(crate) fn validate_basic(&self) -> Result<(), String> {
-        if self.pool_host.is_empty()
-            || self.pool_host.chars().any(char::is_whitespace)
-            || self.pool_host.contains("://")
-            || self.pool_host.contains('/')
-        {
-            return Err("pool host must be a hostname without a URL scheme or path".into());
-        }
-
-        if self.pool_port == 0 {
-            return Err("pool port must be greater than zero".into());
-        }
-
-        validate_pool_password(&self.pool_password)?;
-
-        if !self.btc_address.is_empty() {
-            validate_mainnet_address(&self.btc_address)?;
-        }
-
-        if self.worker_name.is_empty()
-            || self
-                .worker_name
-                .chars()
-                .any(|character| !(character.is_ascii_alphanumeric() || "-_".contains(character)))
-        {
-            return Err(
-                "worker name may contain only letters, numbers, dashes, and underscores".into(),
-            );
-        }
-
-        Ok(())
-    }
-
-    pub(crate) fn username(&self) -> String {
-        format!("{}.{}", self.btc_address, self.worker_name)
-    }
-
-    pub(crate) fn pool_password(&self) -> String {
-        normalize_pool_password(&self.pool_password)
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct PoolDiagnosticStep {
-    pub name: String,
-    pub status: String,
-    pub message: String,
-    pub duration_ms: u64,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct PoolDiagnosticReport {
-    pub generated_at: String,
-    pub pool: String,
-    pub steps: Vec<PoolDiagnosticStep>,
-    pub summary: String,
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateSubmissionStatus {
+    Accepted,
+    Rejected,
+    Unknown,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -171,6 +94,10 @@ pub struct FoundBlockEvent {
     pub hash: String,
     pub difficulty: f64,
     pub timestamp: String,
+    pub submission_status: CandidateSubmissionStatus,
+    pub submission_message: Option<String>,
+    pub record_saved: bool,
+    pub record_file: Option<String>,
     pub pool: String,
 }
 
@@ -212,7 +139,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn real_mining_settings_leave_cpu_kernel_to_backend() {
+    fn real_mining_settings_deserialize_from_camel_case() {
         let settings: RealMiningSettings = serde_json::from_value(serde_json::json!({
             "poolHost": "public-pool.io",
             "poolPort": 3333,
@@ -222,9 +149,8 @@ mod tests {
             "cpuThreads": 1,
             "confirmedCpuUse": true
         }))
-        .expect("settings should deserialize without frontend algorithm fields");
+        .expect("settings should deserialize from the frontend payload");
 
         assert_eq!(settings.cpu_threads, 1);
-        assert_eq!(selected_cpu_kernel_mode(), CpuKernelMode::Midstate);
     }
 }

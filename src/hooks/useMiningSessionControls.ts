@@ -9,7 +9,6 @@ import {
   realMiningStartError,
   resolveRuntimeMiningProfile,
   type AppConfig,
-  type CpuRuntimeAlgorithmDiagnostic,
   type RealMiningStats,
   type RuntimeMiningProfile,
   type SystemInfo,
@@ -23,7 +22,6 @@ interface UseMiningSessionControlsOptions {
   runningInTauri: boolean;
   config: AppConfig;
   systemInfo: SystemInfo;
-  runtimeAlgorithmDiagnostic: CpuRuntimeAlgorithmDiagnostic;
   isMining: boolean;
   petState: PetState;
   isMiningRef: LatestRef<boolean>;
@@ -41,14 +39,13 @@ interface UseMiningSessionControlsOptions {
   setShowSettings: Dispatch<SetStateAction<boolean>>;
   setShowCpuWarning: Dispatch<SetStateAction<boolean>>;
   appendPetLog: (message: string) => void;
-  appendDevLog: (source: "stratum" | "system" | "diagnostic", message: string) => void;
+  appendDevLog: (source: "stratum" | "system", message: string) => void;
 }
 
 export function useMiningSessionControls({
   runningInTauri,
   config,
   systemInfo,
-  runtimeAlgorithmDiagnostic,
   isMining,
   petState,
   isMiningRef,
@@ -78,15 +75,15 @@ export function useMiningSessionControls({
       hashrate: 0,
       accepted_shares: 0,
       rejected_shares: 0,
+      stale_shares_dropped: 0,
+      queued_shares_dropped: 0,
+      best_difficulty: 0,
       share_difficulty: 0,
       current_job_id: "",
       connection_status: "Connecting",
     }));
 
     try {
-      if (runtimeProfile.appliedRecommendation) {
-        appendDevLog("diagnostic", runtimeProfile.reason);
-      }
       appendDevLog("stratum", `Starting CPU mining on ${config.pool_host}:${config.pool_port}`);
       const sessionId = await startRealMining({
         poolHost: config.pool_host,
@@ -123,11 +120,7 @@ export function useMiningSessionControls({
     }
   };
 
-  const runtimeMiningProfileForConfig = () => resolveRuntimeMiningProfile(
-    config,
-    systemInfo,
-    runtimeAlgorithmDiagnostic.runtimeRecommendation,
-  );
+  const runtimeMiningProfileForConfig = () => resolveRuntimeMiningProfile(config, systemInfo);
 
   const startRealMiningSession = async () => {
     const startError = realMiningStartError(config);

@@ -19,8 +19,6 @@ interface DashboardViewProps {
   latestLog: string;
   openLogs: () => Promise<void>;
   copyLogPath: () => Promise<void>;
-  copyDiagnostics: () => Promise<void>;
-  saveDiagnostics: () => Promise<void>;
 }
 
 export default function DashboardView({
@@ -38,8 +36,6 @@ export default function DashboardView({
   latestLog,
   openLogs,
   copyLogPath,
-  copyDiagnostics,
-  saveDiagnostics,
 }: DashboardViewProps) {
   return (
     <section className="dashboard-view" aria-label="Mining dashboard">
@@ -71,8 +67,6 @@ export default function DashboardView({
         latestLog={latestLog}
         openLogs={openLogs}
         copyLogPath={copyLogPath}
-        copyDiagnostics={copyDiagnostics}
-        saveDiagnostics={saveDiagnostics}
       />
     </section>
   );

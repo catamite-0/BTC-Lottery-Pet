@@ -1,15 +1,10 @@
-import type { CSSProperties, Dispatch, SetStateAction } from "react";
-import type { AppConfig, RealMiningStats } from "../../miningLogic";
+import type { RealMiningStats } from "../../miningLogic";
 import { formatDifficulty } from "../../miningLogic";
 import { derivePetCompanionSnapshot } from "../../pets/companion";
-import { builtinPetProfiles, type PetProfile } from "../../pets/profiles";
+import type { PetProfile } from "../../pets/profiles";
 import PetDisplay from "../pet/PetDisplay";
 
-type PetOptionStyle = CSSProperties & { [key: `--${string}`]: string };
-
 interface PetSettingsSectionProps {
-  draftConfig: AppConfig;
-  setDraftConfig: Dispatch<SetStateAction<AppConfig>>;
   selectedPetProfile: PetProfile;
 }
 
@@ -25,14 +20,6 @@ const previewStats: RealMiningStats = {
   current_job_id: "",
   connection_status: "Stopped",
 };
-
-function petOptionStyle(profile: PetProfile): PetOptionStyle {
-  return {
-    "--pet-option-primary": profile.palette.primary,
-    "--pet-option-secondary": profile.palette.secondary,
-    "--pet-option-glow": profile.palette.primary,
-  } as PetOptionStyle;
-}
 
 function PetProfileDisplay({
   profile,
@@ -74,23 +61,13 @@ function PetProfileDisplay({
   );
 }
 
-function PetProfilePreview({ profile }: { profile: PetProfile }) {
-  return (
-    <span className="pet-profile-preview-shell" aria-hidden="true">
-      <PetProfileDisplay profile={profile} displayMode="compact" />
-    </span>
-  );
-}
-
 export default function PetSettingsSection({
-  draftConfig,
-  setDraftConfig,
   selectedPetProfile,
 }: PetSettingsSectionProps) {
   return (
     <section id="settings-pet" className="pet-settings-panel settings-section-card" aria-label="Pet profile">
       <div className="settings-section-heading">
-        <p className="eyebrow">PET PROFILE</p>
+        <p className="eyebrow">PET</p>
         <strong>{selectedPetProfile.name}</strong>
       </div>
       <div className="pet-settings-showcase">
@@ -100,24 +77,6 @@ export default function PetSettingsSection({
           <b>{selectedPetProfile.personality.species}</b>
           <small>{selectedPetProfile.personality.trait} / {selectedPetProfile.body.silhouette}</small>
         </div>
-      </div>
-      <div className="pet-profile-picker">
-        {builtinPetProfiles.map((profile) => (
-          <button
-            aria-pressed={selectedPetProfile.id === profile.id}
-            className={`pet-profile-option ${selectedPetProfile.id === profile.id ? "selected" : ""}`}
-            key={profile.id}
-            onClick={() => setDraftConfig({ ...draftConfig, pet_profile_id: profile.id })}
-            style={petOptionStyle(profile)}
-            type="button"
-          >
-            <PetProfilePreview profile={profile} />
-            <span className="pet-profile-copy">
-              <b>{profile.name}</b>
-              <small>{profile.personality.name} / {profile.body.silhouette}</small>
-            </span>
-          </button>
-        ))}
       </div>
     </section>
   );

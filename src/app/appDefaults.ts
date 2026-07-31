@@ -17,16 +17,13 @@ export const fallbackConfig: AppConfig = {
   notify_on_jackpot: true,
   notify_on_share_accepted: false,
   notify_on_connection_error: true,
-  heartbeat_interval: "off",
-  notification_channel: "local_windows_toast",
-  webhook_url: "",
   pet_profile_id: "classic-slot",
 };
 
 export const fallbackSystemInfo: SystemInfo = {
   available_parallelism: Math.max(1, navigator.hardwareConcurrency || 1),
   default_cpu_threads: 1,
-  recommended_cpu_threads: Math.min(2, Math.max(1, navigator.hardwareConcurrency || 1)),
+  recommended_cpu_threads: Math.min(4, Math.max(1, Math.floor((navigator.hardwareConcurrency || 1) / 2))),
 };
 
 export const idleRealStats: RealMiningStats = {

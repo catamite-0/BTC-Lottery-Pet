@@ -14,14 +14,12 @@ import type { MiningEngine } from "../../engines/miningEngine";
 import type { PetProfile } from "../../pets/profiles";
 import {
   formatDifficulty,
-  formatHashrate,
   presetPort,
   threadsForPreset,
 } from "../../miningLogic";
 import type {
   AppConfig,
   BlockFoundEvent,
-  PoolDiagnosticReport,
   RealMiningStats,
   SystemInfo,
 } from "../../miningLogic";
@@ -47,8 +45,6 @@ interface AppShellProps {
   latestLog: string;
   openLogs: () => Promise<void>;
   copyLogPath: () => Promise<void>;
-  copyDiagnostics: () => Promise<void>;
-  saveDiagnostics: () => Promise<void>;
   effectiveCpuThreads: number;
   errorMessage: string | null;
   setErrorMessage: Dispatch<SetStateAction<string | null>>;
@@ -60,13 +56,6 @@ interface AppShellProps {
   draftConfig: AppConfig;
   setDraftConfig: Dispatch<SetStateAction<AppConfig>>;
   saveSettings: () => Promise<void>;
-  runPoolDiagnostic: () => Promise<void>;
-  observedEfficiencyHashrate: number | null;
-  runtimeDiagnosticElapsedSeconds: number | null;
-  observedCpuThreads: number | null;
-  acceptedShares: number;
-  rejectedShares: number;
-  poolDiagnosticResult: PoolDiagnosticReport | null;
   systemInfo: SystemInfo;
   hardwareReady: boolean;
   jackpotVisible: boolean;
@@ -95,8 +84,6 @@ export default function AppShell({
   latestLog,
   openLogs,
   copyLogPath,
-  copyDiagnostics,
-  saveDiagnostics,
   effectiveCpuThreads,
   errorMessage,
   setErrorMessage,
@@ -108,13 +95,6 @@ export default function AppShell({
   draftConfig,
   setDraftConfig,
   saveSettings,
-  runPoolDiagnostic,
-  observedEfficiencyHashrate,
-  runtimeDiagnosticElapsedSeconds,
-  observedCpuThreads,
-  acceptedShares,
-  rejectedShares,
-  poolDiagnosticResult,
   systemInfo,
   hardwareReady,
   jackpotVisible,
@@ -212,8 +192,6 @@ export default function AppShell({
           latestLog={latestLog}
           openLogs={openLogs}
           copyLogPath={copyLogPath}
-          copyDiagnostics={copyDiagnostics}
-          saveDiagnostics={saveDiagnostics}
         />
       ) : (
         <WidgetView
@@ -252,17 +230,7 @@ export default function AppShell({
           setDraftConfig={setDraftConfig}
           setShowSettings={setShowSettings}
           saveSettings={saveSettings}
-          runPoolDiagnostic={runPoolDiagnostic}
-          observedHashrate={observedEfficiencyHashrate}
-          observedSampleSeconds={runtimeDiagnosticElapsedSeconds}
-          observedCpuThreads={observedCpuThreads}
-          acceptedShares={acceptedShares}
-          rejectedShares={rejectedShares}
-          staleSharesDropped={realStats.stale_shares_dropped}
-          queuedSharesDropped={realStats.queued_shares_dropped}
-          poolDiagnosticResult={poolDiagnosticResult}
           systemInfo={systemInfo}
-          formatHashrate={formatHashrate}
           presetPort={presetPort}
           threadsForPreset={threadsForPreset}
           hardwareReady={hardwareReady}

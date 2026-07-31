@@ -20,6 +20,8 @@ if (-not $node) {
   throw "Node.js is required. Run scripts\dev-env.ps1 to see detected tools."
 }
 
+Invoke-Step "Version consistency" { & $node "scripts\check-version.mjs" }
+
 if (-not (Test-Path -LiteralPath (Join-Path $repoRoot "node_modules") -PathType Container)) {
   throw "Frontend dependencies are missing. Run npm install before scripts\verify.ps1."
 }
@@ -90,8 +92,8 @@ if (-not $SkipAudit) {
 
 if (-not $SkipRust) {
   if ($cargo) {
-    Invoke-Step "Rust tests" { & $cargo test --manifest-path "src-tauri\Cargo.toml" }
-    Invoke-Step "Rust clippy" { & $cargo clippy --manifest-path "src-tauri\Cargo.toml" -- -D warnings }
+    Invoke-Step "Rust tests" { & $cargo test --locked --workspace --manifest-path "src-tauri\Cargo.toml" }
+    Invoke-Step "Rust clippy" { & $cargo clippy --locked --workspace --all-targets --manifest-path "src-tauri\Cargo.toml" -- -D warnings }
   } elseif ($Strict) {
     throw "Rust checks require cargo, but cargo was not found."
   } else {
@@ -105,6 +107,9 @@ if ($BuildInstaller) {
     throw "Installer build requires npm/Tauri CLI, but npm was not found."
   }
   Invoke-Step "Tauri installer build" { & $npm run tauri:build }
+  Invoke-Step "Installer checksum" {
+    & "$repoRoot\scripts\write-installer-checksums.ps1"
+  }
 }
 
 Write-Host ""

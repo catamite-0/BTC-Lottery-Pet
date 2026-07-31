@@ -17,6 +17,13 @@ export default function JackpotDialog({
   openLogs,
   dismissJackpotSequence,
 }: JackpotDialogProps) {
+  const submissionExplanation =
+    jackpotBlock.submission_status === "accepted"
+      ? "The pool accepted the Stratum submission. This is not independent Bitcoin-network confirmation."
+      : jackpotBlock.submission_status === "rejected"
+        ? "The pool rejected the submission. The local candidate record is preserved below."
+        : "No pool confirmation was received. Do not assume the submission was accepted or rejected.";
+
   return (
     <section
       className="overlay jackpot-overlay"
@@ -35,9 +42,21 @@ export default function JackpotDialog({
         <p className="eyebrow">{jackpotPhaseLabel(jackpotSequence.phase)}</p>
         <h2>JACKPOT</h2>
         <p>
-          Network target met. The candidate was saved to a timestamped found_block_*.json file in
-          the app log folder.
+          Pool submission: <strong>{jackpotBlock.submission_status.toUpperCase()}</strong>
+          {jackpotBlock.submission_message ? ` — ${jackpotBlock.submission_message}` : ""}
         </p>
+        <p>{submissionExplanation}</p>
+        {jackpotBlock.record_saved && jackpotBlock.record_file ? (
+          <p>
+            Network target met. The candidate was saved as <code>{jackpotBlock.record_file}</code>{" "}
+            in the app log folder.
+          </p>
+        ) : (
+          <p role="alert">
+            Network target met, but the local candidate record could not be saved. Keep this dialog
+            open and copy the details below.
+          </p>
+        )}
         <dl>
           <div>
             <dt>Job</dt>

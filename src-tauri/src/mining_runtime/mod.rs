@@ -1,7 +1,6 @@
 pub(crate) mod block;
 pub(crate) mod connection;
 pub(crate) mod controller;
-pub(crate) mod diagnostics;
 pub(crate) mod events;
 pub(crate) mod hash;
 pub(crate) mod kernel;

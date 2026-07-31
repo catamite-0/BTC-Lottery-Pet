@@ -1,0 +1,272 @@
+name: Windows Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-installer:
+    name: Build Windows installer once
+    runs-on: windows-2025
+    timeout-minutes: 60
+
+    permissions:
+      contents: read
+
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      installer_name: ${{ steps.metadata.outputs.installer_name }}
+      artifact_name: ${{ steps.metadata.outputs.artifact_name }}
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate tag shape and main ancestry
+        if: ${{ github.event_name == 'push' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          if ($env:GITHUB_REF -cnotmatch '^refs/tags/v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
+            throw "Release tag must exactly match vX.Y.Z: $env:GITHUB_REF"
+          }
+
+          $tagCommit = (& git rev-parse "$env:GITHUB_REF^{commit}").Trim()
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($tagCommit)) {
+            throw "Could not resolve the tag to a commit."
+          }
+
+          & git show-ref --verify --quiet refs/remotes/origin/main
+          if ($LASTEXITCODE -ne 0) {
+            throw "origin/main was not fetched."
+          }
+
+          & git merge-base --is-ancestor $tagCommit refs/remotes/origin/main
+          if ($LASTEXITCODE -ne 0) {
+            throw "The tagged commit is not contained in origin/main."
+          }
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: 1.97.1
+          components: clippy,rustfmt
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install locked frontend dependencies
+        run: npm ci
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+      - name: Run full release gate and build installer
+        shell: pwsh
+        run: .\scripts\verify.ps1 -Strict -BuildInstaller
+
+      - name: Read release metadata
+        id: metadata
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $package = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
+          $version = [string]$package.version
+          $installerName = "BTC Lottery Pet_${version}_x64-setup.exe"
+          $artifactName = "btc-lottery-pet-$version-windows-x64"
+
+          "version=$version" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "installer_name=$installerName" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "artifact_name=$artifactName" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Validate exact release assets
+        shell: pwsh
+        env:
+          ASSET_DIR: src-tauri/target/release/bundle/nsis
+          INSTALLER_NAME: ${{ steps.metadata.outputs.installer_name }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $assetDir = (Resolve-Path -LiteralPath $env:ASSET_DIR).Path
+          $installerPath = Join-Path $assetDir $env:INSTALLER_NAME
+          $checksumPath = "$installerPath.sha256"
+
+          $expectedNames = @(
+            $env:INSTALLER_NAME
+            "$($env:INSTALLER_NAME).sha256"
+          ) | Sort-Object
+
+          $actualNames = @(
+            Get-ChildItem -LiteralPath $assetDir -File |
+              Select-Object -ExpandProperty Name |
+              Sort-Object
+          )
+
+          $difference = @(
+            Compare-Object -ReferenceObject $expectedNames -DifferenceObject $actualNames
+          )
+          if ($difference.Count -ne 0) {
+            throw "The NSIS directory does not contain exactly the expected release assets."
+          }
+
+          $checksumLine = [IO.File]::ReadAllText($checksumPath).TrimEnd([char[]]"`r`n")
+          $pattern = '^([0-9a-f]{64})  ' + [regex]::Escape($env:INSTALLER_NAME) + '$'
+          $match = [regex]::Match(
+            $checksumLine,
+            $pattern,
+            [Text.RegularExpressions.RegexOptions]::CultureInvariant
+          )
+          if (-not $match.Success) {
+            throw "The checksum file has an invalid format or filename."
+          }
+
+          $expectedHash = $match.Groups[1].Value
+          $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installerPath).Hash.ToLowerInvariant()
+          if (-not [string]::Equals($expectedHash, $actualHash, [StringComparison]::Ordinal)) {
+            throw "The installer checksum does not match."
+          }
+
+      - name: Upload exact installer artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.metadata.outputs.artifact_name }}
+          path: |
+            src-tauri/target/release/bundle/nsis/${{ steps.metadata.outputs.installer_name }}
+            src-tauri/target/release/bundle/nsis/${{ steps.metadata.outputs.installer_name }}.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  verify-and-attest:
+    name: Verify and attest uploaded artifact
+    needs:
+      - build-installer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download immutable build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build-installer.outputs.artifact_name }}
+          path: release-assets
+          digest-mismatch: error
+
+      - name: Verify downloaded files and installer checksum
+        shell: pwsh
+        env:
+          INSTALLER_NAME: ${{ needs.build-installer.outputs.installer_name }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $assetDir = (Resolve-Path -LiteralPath release-assets).Path
+          $installerPath = Join-Path $assetDir $env:INSTALLER_NAME
+          $checksumPath = "$installerPath.sha256"
+
+          $expectedNames = @(
+            $env:INSTALLER_NAME
+            "$($env:INSTALLER_NAME).sha256"
+          ) | Sort-Object
+
+          $actualNames = @(
+            Get-ChildItem -LiteralPath $assetDir -File |
+              Select-Object -ExpandProperty Name |
+              Sort-Object
+          )
+
+          $difference = @(
+            Compare-Object -ReferenceObject $expectedNames -DifferenceObject $actualNames
+          )
+          if ($difference.Count -ne 0) {
+            throw "The downloaded artifact contains unexpected files."
+          }
+
+          $checksumLine = [IO.File]::ReadAllText($checksumPath).TrimEnd([char[]]"`r`n")
+          $pattern = '^([0-9a-f]{64})  ' + [regex]::Escape($env:INSTALLER_NAME) + '$'
+          $match = [regex]::Match(
+            $checksumLine,
+            $pattern,
+            [Text.RegularExpressions.RegexOptions]::CultureInvariant
+          )
+          if (-not $match.Success) {
+            throw "The downloaded checksum file is invalid."
+          }
+
+          $expectedHash = $match.Groups[1].Value
+          $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installerPath).Hash.ToLowerInvariant()
+          if (-not [string]::Equals($expectedHash, $actualHash, [StringComparison]::Ordinal)) {
+            throw "The downloaded installer checksum does not match."
+          }
+
+      - name: Attest installer and checksum
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: |
+            release-assets/${{ needs.build-installer.outputs.installer_name }}
+            release-assets/${{ needs.build-installer.outputs.installer_name }}.sha256
+
+  create-draft-release:
+    name: Create draft GitHub Release
+    needs:
+      - build-installer
+      - verify-and-attest
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download verified artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build-installer.outputs.artifact_name }}
+          path: release-assets
+          digest-mismatch: error
+
+      - name: Create draft release only
+        uses: softprops/action-gh-release@fe965f7af51af5f2602596916f38a38df2e33de0 # v3.0.2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: BTC Lottery Pet ${{ github.ref_name }}
+          body: |
+            Automated draft release. Do not publish until the checksum,
+            artifact attestation, installer smoke test, and unsigned-binary
+            warning have been reviewed.
+          draft: true
+          prerelease: false
+          generate_release_notes: true
+          preserve_order: true
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          working_directory: release-assets
+          files: |
+            ${{ needs.build-installer.outputs.installer_name }}
+            ${{ needs.build-installer.outputs.installer_name }}.sha256

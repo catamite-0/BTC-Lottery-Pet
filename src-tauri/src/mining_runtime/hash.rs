@@ -1,12 +1,11 @@
 pub(crate) use btc_hash_core::HeaderWork;
-pub(crate) use btc_hash_cpu::{
-    benchmark_header_hash_paths, cpu_kernel_hash_words, difficulty_from_hash, double_sha256,
-    header_work_from_header,
-};
+pub(crate) use btc_hash_cpu::{difficulty_from_hash, double_sha256};
 #[cfg(test)]
-pub(crate) use btc_hash_cpu::{hash_meets_network_target, target_from_nbits, DIFF_ONE_TARGET};
+pub(crate) use btc_hash_cpu::{
+    hash_meets_network_target, header_work_from_header, target_from_nbits, DIFF_ONE_TARGET,
+};
 
-use crate::mining_settings::FoundBlockEvent;
+use crate::mining_settings::{CandidateSubmissionStatus, FoundBlockEvent};
 use crate::mining_state::JobTemplate;
 
 fn build_merkle_root(job: &JobTemplate, extranonce2: &str) -> Result<[u8; 32], String> {
@@ -34,6 +33,7 @@ fn reversed_header_word(value: &str, field: &str) -> Result<[u8; 4], String> {
         .map_err(|bytes: Vec<u8>| format!("pool sent {field} as {} bytes, expected 4", bytes.len()))
 }
 
+#[cfg(test)]
 pub(crate) fn build_header(job: &JobTemplate, extranonce2: &str) -> Result<Vec<u8>, String> {
     let merkle_root = build_merkle_root(job, extranonce2)?;
     let version = reversed_header_word(&job.version, "version")?;
@@ -177,6 +177,10 @@ pub(crate) fn found_block_event(
         hash: block_hash_hex(hash),
         difficulty,
         timestamp: chrono::Utc::now().to_rfc3339(),
+        submission_status: CandidateSubmissionStatus::Unknown,
+        submission_message: None,
         pool: pool.to_owned(),
+        record_saved: false,
+        record_file: None,
     }
 }

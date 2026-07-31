@@ -1,6 +1,6 @@
 import type { MiningEvent } from "./miningEvents";
 
-export type DevLogSource = "system" | "stratum" | "cpu" | "diagnostic";
+export type DevLogSource = "system" | "stratum" | "cpu";
 
 export interface DevLogEntry {
   id: string;

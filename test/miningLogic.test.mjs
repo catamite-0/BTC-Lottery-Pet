@@ -50,7 +50,7 @@ import {
 const systemInfo = {
   available_parallelism: 8,
   default_cpu_threads: 1,
-  recommended_cpu_threads: 2,
+  recommended_cpu_threads: 4,
 };
 
 function validConfig(overrides = {}) {
@@ -66,9 +66,6 @@ function validConfig(overrides = {}) {
     notify_on_jackpot: true,
     notify_on_share_accepted: false,
     notify_on_connection_error: true,
-    heartbeat_interval: "off",
-    notification_channel: "local_windows_toast",
-    webhook_url: "",
     pet_profile_id: DEFAULT_PET_PROFILE_ID,
     ...overrides,
   };
@@ -83,8 +80,8 @@ test("pool presets normalize known ports without touching custom pools", () => {
 
 test("performance presets enforce conservative CPU thread bounds", () => {
   assert.equal(threadsForPreset("eco", systemInfo, 8), 1);
-  assert.equal(threadsForPreset("normal", systemInfo, 8), 2);
-  assert.equal(threadsForPreset("turbo", systemInfo, 1), 8);
+  assert.equal(threadsForPreset("normal", systemInfo, 8), 4);
+  assert.equal(threadsForPreset("turbo", systemInfo, 1), 7);
   assert.equal(threadsForPreset("custom", systemInfo, 99), 8);
   assert.equal(threadsForPreset("custom", systemInfo, -4), 1);
 });
@@ -93,8 +90,8 @@ test("runtime capabilities summarize CPU capacity only", () => {
   const capabilities = createRuntimeCapabilities(systemInfo);
 
   assert.equal(capabilities.availableCpuThreads, 8);
-  assert.equal(capabilities.recommendedCpuThreads, 2);
-  assert.equal(capabilities.signature, "cpu:8|rec:2");
+  assert.equal(capabilities.recommendedCpuThreads, 4);
+  assert.equal(capabilities.signature, "cpu:8|rec:4");
 });
 
 test("hardware adaptation clamps old CPU settings to this device", () => {
@@ -134,8 +131,6 @@ test("config normalization trims fields and applies CPU presets", () => {
       worker_name: "  desk_1  ",
       cpu_threads: 99,
       performance_preset: "turbo",
-      notification_channel: "webhook",
-      webhook_url: "  https://example.invalid/hook  ",
     }),
     systemInfo,
   );
@@ -145,18 +140,19 @@ test("config normalization trims fields and applies CPU presets", () => {
   assert.equal(normalized.pool_port, 3333);
   assert.equal(normalized.pool_password, "d=1");
   assert.equal(normalized.worker_name, "desk_1");
-  assert.equal(normalized.cpu_threads, 8);
+  assert.equal(normalized.cpu_threads, 7);
   assert.equal(normalized.pet_profile_id, DEFAULT_PET_PROFILE_ID);
-  assert.equal(normalized.webhook_url, "https://example.invalid/hook");
 });
 
 test("pet profile registry validates manifests and normalizes unknown ids", () => {
-  assert.equal(normalizePetProfileId("cyber-miner"), "cyber-miner");
+  assert.equal(normalizePetProfileId("classic-slot"), "classic-slot");
+  assert.equal(normalizePetProfileId("cyber-miner"), DEFAULT_PET_PROFILE_ID);
   assert.equal(normalizePetProfileId("missing-profile"), DEFAULT_PET_PROFILE_ID);
   assert.equal(getPetProfile(null).id, DEFAULT_PET_PROFILE_ID);
-  assert.equal(isKnownPetProfileId("lucky-cat"), true);
+  assert.equal(isKnownPetProfileId("classic-slot"), true);
+  assert.equal(isKnownPetProfileId("lucky-cat"), false);
   assert.equal(isKnownPetProfileId("missing-profile"), false);
-  assert.deepEqual(builtinPetProfileIds, ["classic-slot", "cyber-miner", "lucky-cat"]);
+  assert.deepEqual(builtinPetProfileIds, ["classic-slot"]);
 
   const nonObjectValidation = validatePetManifest(null);
   assert.equal(nonObjectValidation.ok, false);
@@ -215,7 +211,7 @@ test("pet profile registry validates manifests and normalizes unknown ids", () =
 });
 
 test("pet companion snapshot adds mood, care, and personality feedback", () => {
-  const profile = getPetProfile("cyber-miner");
+  const profile = getPetProfile("classic-slot");
   const baseContext = {
     profile,
     petState: "IDLE",
@@ -234,7 +230,7 @@ test("pet companion snapshot adds mood, care, and personality feedback", () => {
   };
 
   const resting = derivePetCompanionSnapshot(baseContext);
-  assert.equal(resting.name, "Volt");
+  assert.equal(resting.name, "Bitty");
   assert.equal(resting.mood, "resting");
   assert.equal(resting.reaction, profile.personality.voice.idle);
   assert.equal(resting.badges[0][0], "MOOD");
@@ -335,7 +331,15 @@ test("real mining start validation catches local configuration mistakes", () => 
   );
   assert.equal(
     realMiningStartError(validConfig({ pool_password: `${"x".repeat(129)}` })),
-    "Pool password must be 128 characters or fewer and cannot contain control characters.",
+    "Pool password must be 128 UTF-8 bytes or fewer and cannot contain control characters.",
+  );
+  assert.equal(
+    realMiningStartError(validConfig({ pool_password: "密".repeat(43) })),
+    "Pool password must be 128 UTF-8 bytes or fewer and cannot contain control characters.",
+  );
+  assert.equal(
+    realMiningStartError(validConfig({ pool_password: "abc\u0085" })),
+    "Pool password must be 128 UTF-8 bytes or fewer and cannot contain control characters.",
   );
   assert.equal(
     realMiningStartError(validConfig({ worker_name: "desk.1" })),
@@ -393,7 +397,12 @@ test("mining events keep block candidates separate from jackpot UI events", () =
     hash: "00ff",
     difficulty: 123,
     timestamp: "2026-06-15T00:00:00Z",
+    submission_status: "accepted",
+    submission_message:
+      "The pool accepted the Stratum submission; this is not Bitcoin-network confirmation.",
     pool: "public-pool.io:3333",
+    record_saved: true,
+    record_file: "block-candidate-job-1.json",
   };
 
   const accepted = createShareEvent("share_accepted", "cpu", "Share accepted");
@@ -434,7 +443,11 @@ test("jackpot sequence advances through the required presentation phases", () =>
     hash: "00ff",
     difficulty: 123,
     timestamp: "2026-06-15T00:00:00Z",
+    submission_status: "unknown",
+    submission_message: "No pool confirmation was received before the response deadline.",
     pool: "public-pool.io:3333",
+    record_saved: true,
+    record_file: "block-candidate-job-1.json",
   };
 
   const sequence = startJackpotSequence(block, true, "cpu");
@@ -467,95 +480,16 @@ test("mining engine facade owns start stop status calls", async () => {
   assert.equal(engine.status().kind, "cpu");
 });
 
-test("runtime mining profile applies safe automatic density recommendations", () => {
-  const recommendation = {
-    schemaVersion: 1,
-    mode: "run_density_default",
-    priority: "run",
-    selectedIntent: "best_efficiency",
-    canApplyProfile: true,
-    manualApprovalRequired: false,
-    autoApplyAllowed: true,
-    protectsLowPowerLane: true,
-    opensHighHashBurst: false,
-    targetStepId: "cpu:4",
-    targetStepSummary: "CPU 4 thread density lane",
-    targetCpuThreads: 4,
-    defaultPointRole: "max_efficiency",
-    defaultPointHashrate: 220_000_000,
-    defaultPointWatts: 12,
-    burstAllowed: false,
-    burstHashrate: null,
-    burstWatts: null,
-    recoveryCooldownSeconds: null,
-    recoveryObservedSeconds: null,
-    recoveryCooldownRemainingSeconds: null,
-    recoveryResumeAllowed: false,
-    recoveryResumeCondition: null,
-    recoveryQualityLossHashrate: null,
-    recoveryThrottleHashrateAtRisk: null,
-    guardrails: [],
-    summary: "Adopt measured density lane.",
-    nextStep: "Run density lane.",
-  };
-
-  const profile = resolveRuntimeMiningProfile(
-    validConfig({ performance_preset: "custom", cpu_threads: 1 }),
+test("runtime mining profile always uses the saved local CPU preset", () => {
+  const normal = resolveRuntimeMiningProfile(
+    validConfig({ performance_preset: "normal", cpu_threads: 1 }),
     systemInfo,
-    recommendation,
   );
-
-  assert.equal(profile.appliedRecommendation, true);
-  assert.equal(profile.source, "runtime_recommendation");
-  assert.equal(profile.cpuThreads, 4);
-  assert.match(profile.reason, /CPU 4 thread density lane/);
-});
-
-test("runtime mining profile keeps manual burst out of auto start", () => {
-  const baseRecommendation = {
-    schemaVersion: 1,
-    mode: "manual_burst",
-    priority: "manual",
-    selectedIntent: "best_hashrate",
-    canApplyProfile: true,
-    manualApprovalRequired: true,
-    autoApplyAllowed: false,
-    protectsLowPowerLane: true,
-    opensHighHashBurst: true,
-    targetStepId: "cpu:burst",
-    targetStepSummary: "CPU burst",
-    targetCpuThreads: 8,
-    defaultPointRole: "balanced",
-    defaultPointHashrate: 220_000_000,
-    defaultPointWatts: 12,
-    burstAllowed: true,
-    burstHashrate: 410_000_000,
-    burstWatts: 30,
-    recoveryCooldownSeconds: null,
-    recoveryObservedSeconds: null,
-    recoveryCooldownRemainingSeconds: null,
-    recoveryResumeAllowed: false,
-    recoveryResumeCondition: null,
-    recoveryQualityLossHashrate: null,
-    recoveryThrottleHashrateAtRisk: null,
-    guardrails: [],
-    summary: "Manual burst only.",
-    nextStep: "Require explicit manual burst.",
-  };
-
-  const manualBurst = resolveRuntimeMiningProfile(
+  const custom = resolveRuntimeMiningProfile(
     validConfig({ performance_preset: "custom", cpu_threads: 2 }),
     systemInfo,
-    baseRecommendation,
-  );
-  const automaticBurst = resolveRuntimeMiningProfile(
-    validConfig({ cpu_threads: 1, performance_preset: "eco" }),
-    systemInfo,
-    { ...baseRecommendation, mode: "run_density_default", manualApprovalRequired: false, autoApplyAllowed: true, opensHighHashBurst: false },
   );
 
-  assert.equal(manualBurst.appliedRecommendation, false);
-  assert.equal(manualBurst.cpuThreads, 2);
-  assert.equal(automaticBurst.appliedRecommendation, true);
-  assert.equal(automaticBurst.cpuThreads, 8);
+  assert.deepEqual(normal, { cpuThreads: 4 });
+  assert.deepEqual(custom, { cpuThreads: 2 });
 });

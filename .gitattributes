@@ -2,6 +2,7 @@
 
 .gitattributes text eol=lf
 .gitignore text eol=lf
+.node-version text eol=lf
 
 *.css text eol=lf
 *.html text eol=lf

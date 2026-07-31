@@ -34,10 +34,11 @@ It never requests or stores a BTC private key or seed phrase.
 
 ## Download
 
-Tagged versions publish a Windows NSIS installer on the GitHub Releases page.
-Release assets are built by the repository's Windows workflow from the tagged
-source. Until a tagged installer is present, treat the repository as source
-code and a release candidate rather than a finished end-user download.
+Tagged versions build a Windows NSIS installer and checksum in GitHub Actions.
+The workflow first creates a draft GitHub Release from the verified build
+artifact; a maintainer publishes it only after the Windows smoke checklist is
+complete. Until a published installer is present, treat the repository as
+source code and a release candidate rather than a finished end-user download.
 
 ## CPU Mining Warning
 
@@ -319,6 +320,8 @@ Use exactly one of these commands for the task at hand:
 
 | Command | Purpose |
 | --- | --- |
+| `bash scripts/setup-cloud.sh` | Installs locked dependencies and fetches the Rust graph during the Codex cloud setup phase. |
+| `npm run verify:cloud` | Runs the portable frontend and mining-core gate used by Codex cloud tasks. |
 | `.\scripts\dev-env.ps1` | Prints the Git/Node/npm/Cargo paths detected for this checkout and updates PATH for the script process. |
 | `.\scripts\verify.ps1` | Runs the local verification suite, using direct Node fallbacks when npm is not on PATH. Add `-Strict` for release gating and `-BuildInstaller` to include the Tauri installer build. |
 | `npm run clean:dev:check` | Previews removal of generated development files without deleting them. |
@@ -337,17 +340,22 @@ and Node is available.
 
 ## Continuous Integration
 
-GitHub Actions runs the fast quality gate on push and pull request: application
-and changelog version consistency, production dependency audit, frontend helper
-tests, frontend build, and locked Rust tests and Clippy with `-D warnings`. The
-Windows installer artifact job runs for `v*` tags or when the workflow is
-started manually with `build_installer=true`. It uses the same checksum script
-as local release verification. Tag builds publish both the NSIS installer and
-its `.sha256` file to the corresponding GitHub Release.
+GitHub Actions runs the full Windows gate on every pull request and `main`
+update with read-only repository permissions. It checks formatting, application
+and changelog versions, production dependencies, frontend tests/build, and the
+locked Rust workspace tests and Clippy with `-D warnings`.
 
-Manual workflow runs honor `build_installer=false`; when enabled, they keep the
-installer as an Actions artifact and never publish a release, even if a tag ref
-was selected for the dispatch.
+The separate Windows Release workflow builds the installer once. A manual run
+stores only a verified Actions artifact. A strict `vX.Y.Z` tag contained in
+`main` additionally creates a **draft** GitHub Release from that same downloaded
+artifact after checksum verification and provenance attestation. Only the final
+draft-release job receives `contents: write`; no workflow publishes the draft
+automatically.
+
+Codex cloud owns portable code changes and pull-request preparation. Windows
+Actions owns full Tauri validation and NSIS packaging. See
+[`docs/cloud-development.md`](./docs/cloud-development.md) for environment
+setup, responsibility boundaries, and the release sequence.
 
 ## License
 
@@ -413,5 +421,5 @@ Before each release, verify:
 6. Dashboard `OPEN LOGS` opens the local app log folder and `COPY LOG PATH`
    copies that folder path.
 7. Complete the manual checks in [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)
-   before tagging or distributing the installer, and record skipped checks with
-   reasons in the release notes.
+   before publishing the draft Release or distributing the installer, and
+   record skipped checks with reasons in the release notes.

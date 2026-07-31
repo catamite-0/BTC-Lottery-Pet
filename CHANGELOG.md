@@ -17,6 +17,11 @@
   alongside the Windows installer.
 - Made Settings tabs size themselves from the actual tab count and use a 2x2
   layout in the narrow default window.
+- Added a Codex cloud setup and portable verification path with repository
+  instructions and pinned Node/Rust toolchains.
+- Split read-only pull-request CI from Windows installer production. Tagged
+  builds now verify and attest one immutable artifact before creating a draft
+  GitHub Release for manual smoke-test approval.
 
 ### Removed
 
@@ -36,6 +41,8 @@
 - Kept deterministic equivalence coverage between the optimized midstate path
   and standard double SHA-256 across nonce windows and mutated headers.
 - Locked local and CI Rust verification to the checked-in workspace lock file.
+- Pinned every third-party GitHub Action to a full commit SHA and limited
+  release write permission to the final draft-release job.
 
 ### Validation
 
@@ -43,8 +50,10 @@
 - `npm audit --omit=dev`
 - `npm run test:frontend`
 - `npm run build`
+- `npm run verify:cloud`
 - `cargo test --locked --workspace --manifest-path src-tauri\Cargo.toml`
 - `cargo clippy --locked --workspace --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`
+- `.\scripts\verify.ps1 -Strict -BuildInstaller`
 
 ## 0.8.0 - 2026-07-03
 

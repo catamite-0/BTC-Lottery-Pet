@@ -9,6 +9,7 @@ desktop behavior that CI cannot safely prove.
 - [ ] `.\scripts\dev-env.ps1`
 - [ ] `npm run check:version`
 - [ ] `npm ci`
+- [ ] `npm run verify:cloud`
 - [ ] `.\scripts\verify.ps1 -Strict`
 - [ ] Build the installer with `.\scripts\verify.ps1 -Strict -BuildInstaller`
       after the strict gate has passed. If using `npm run tauri:build`
@@ -23,9 +24,9 @@ For failure isolation, the strict gate covers version and changelog consistency,
 `cargo test --locked --workspace --manifest-path src-tauri\Cargo.toml`, and
 `cargo clippy --locked --workspace --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`.
 
-GitHub Actions runs the fast checks on push and pull request. The installer
-artifact job runs for `v*` tags or when the workflow is started manually with
-`build_installer=true`.
+GitHub Actions runs `Windows full gate` on `main` and pull requests. Manually
+starting `Windows Release` builds and attests an artifact without creating a
+Release. A strict `vX.Y.Z` tag contained in `main` creates a draft Release only.
 
 ## Installer Smoke
 
@@ -114,6 +115,11 @@ not use a private or sensitive worker label.
 - [ ] Confirm the tag exactly matches all application version sources.
 - [ ] Confirm the GitHub Release assets include the current-version installer
       and matching `.sha256` file.
+- [ ] Confirm the release remained a draft throughout asset verification.
+- [ ] Verify the GitHub artifact attestation for both release assets.
+- [ ] Record the installer Authenticode signature status. Do not describe a
+      checksum or GitHub attestation as Windows code signing.
+- [ ] Publish the draft manually only after the installer smoke checks pass.
 - [ ] Restate that this is a local CPU-only release with plain Stratum v1 TCP
       and no TLS, Stratum v2, proxy, failover, remote control, or browser
       mining support.

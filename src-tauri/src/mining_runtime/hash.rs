@@ -5,7 +5,7 @@ pub(crate) use btc_hash_cpu::{
     hash_meets_network_target, header_work_from_header, target_from_nbits, DIFF_ONE_TARGET,
 };
 
-use crate::mining_settings::FoundBlockEvent;
+use crate::mining_settings::{CandidateSubmissionStatus, FoundBlockEvent};
 use crate::mining_state::JobTemplate;
 
 fn build_merkle_root(job: &JobTemplate, extranonce2: &str) -> Result<[u8; 32], String> {
@@ -177,6 +177,10 @@ pub(crate) fn found_block_event(
         hash: block_hash_hex(hash),
         difficulty,
         timestamp: chrono::Utc::now().to_rfc3339(),
+        submission_status: CandidateSubmissionStatus::Unknown,
+        submission_message: None,
         pool: pool.to_owned(),
+        record_saved: false,
+        record_file: None,
     }
 }

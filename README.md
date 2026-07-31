@@ -138,9 +138,11 @@ does not include the BTC address, private keys, seed phrases, or any remote
 control data.
 
 To keep an untrusted or misconfigured pool from consuming unbounded local
-resources, the client caps each Stratum line at 64 KiB, keeps at most 128
-unanswered share submissions, expires pending share responses after 30 seconds,
-and sends at most 16 queued shares before returning to socket reads. It also
+resources, the client accumulates partial Stratum fragments across socket
+timeouts, caps each complete line at 64 KiB, and rejects a message that is not
+finished within five seconds. It keeps at most 128 unanswered share submissions,
+expires pending share responses after 30 seconds, and sends at most 16 queued
+shares before returning to socket reads. It also
 drains old queued shares before reconnecting, records stale/queued share drops,
 rejects non-positive and pathologically low share difficulties, validates
 Stratum job hex fields before worker dispatch, and discards invalid active jobs
@@ -179,6 +181,7 @@ The repository-level [`config.json`](./config.json) contains defaults:
 
 ```json
 {
+  "config_schema_version": 1,
   "btc_address": "",
   "pool_host": "public-pool.io",
   "pool_port": 3333,
@@ -195,14 +198,26 @@ The repository-level [`config.json`](./config.json) contains defaults:
 ```
 
 On first launch, the Rust backend copies these values to the app-specific
-configuration directory. Existing config files are normalized when loaded.
+configuration directory. The schema field belongs to the stored JSON format and
+is not part of the frontend settings contract. Existing config files are
+normalized when loaded.
+
 `performance_preset` and `cpu_threads` are the enforced real-mining CPU limits.
 The default `eco` preset uses one CPU thread.
 
-Upgrades preserve existing custom pool selections, but migrate the old `21496`
-preset port to `3333` for known preset hosts. If a pool rejects the client after
-connecting, review the settings panel and switch pools manually when
-appropriate.
+The first upgrade from a pre-schema 0.8 config writes the untouched original to
+`config.pre-schema-1.json` before replacing removed fields. Every legacy Normal
+or Turbo preset is migrated to Custom with its stored thread count preserved.
+The one-time backup stays in the local app configuration directory and may
+contain the BTC address, pool password, and removed webhook settings. After a
+successful migration has been verified, the user may delete that backup
+manually; the app keeps it by default for recovery.
+
+Configs written by a newer schema are left unchanged and fail closed instead of
+being downgraded. Upgrades also preserve existing custom pool selections and
+migrate the old `21496` preset port to `3333` for known preset hosts. If a pool
+rejects the client after connecting, review the settings panel and switch pools
+manually when appropriate.
 
 CPU mining is the only run mode. Mining still begins only after the user clicks
 `START`, and high CPU presets require the explicit warning confirmation.
@@ -322,13 +337,17 @@ and Node is available.
 
 ## Continuous Integration
 
-GitHub Actions runs the fast quality gate on push and pull request: production
-dependency audit, frontend helper tests, frontend build, Rust tests, and Rust
-Clippy with `-D warnings`. The Windows installer artifact job runs for `v*`
-tags or when the workflow is started manually with `build_installer=true`.
-Tag builds also publish the NSIS installer to the corresponding GitHub Release.
-Manual workflow runs keep the installer as an Actions artifact and do not
-publish a release.
+GitHub Actions runs the fast quality gate on push and pull request: application
+and changelog version consistency, production dependency audit, frontend helper
+tests, frontend build, and locked Rust tests and Clippy with `-D warnings`. The
+Windows installer artifact job runs for `v*` tags or when the workflow is
+started manually with `build_installer=true`. It uses the same checksum script
+as local release verification. Tag builds publish both the NSIS installer and
+its `.sha256` file to the corresponding GitHub Release.
+
+Manual workflow runs honor `build_installer=false`; when enabled, they keep the
+installer as an Actions artifact and never publish a release, even if a tag ref
+was selected for the dispatch.
 
 ## License
 
@@ -381,15 +400,18 @@ Before each release, verify:
 
 1. `npm ci` installs from the committed lockfile.
 2. `.\scripts\verify.ps1 -Strict` passes. This is the local release gate for
-   production dependency audit, frontend tests, frontend build, Rust tests, and
-   Rust Clippy with `-D warnings`.
-3. `.\scripts\verify.ps1 -Strict -BuildInstaller` or `npm run tauri:build`
-   produces the Windows executable and NSIS installer.
-4. The release executable uses the Windows GUI subsystem and should not open an
+   version and changelog consistency, production dependency audit, frontend
+   tests, frontend build, and locked Rust tests and Clippy with `-D warnings`.
+3. `.\scripts\verify.ps1 -Strict -BuildInstaller` produces the Windows
+   executable, NSIS installer, and `.sha256` file. After a direct
+   `npm run tauri:build`, run `.\scripts\write-installer-checksums.ps1`.
+4. Before creating a tag, replace `Unreleased` in the first `CHANGELOG.md`
+   release heading with the release date; the tag gate rejects it otherwise.
+5. The release executable uses the Windows GUI subsystem and should not open an
    extra black console window. The development command `npm run tauri:dev` can
    still keep its development terminal open; that is expected.
-5. Dashboard `OPEN LOGS` opens the local app log folder and `COPY LOG PATH`
+6. Dashboard `OPEN LOGS` opens the local app log folder and `COPY LOG PATH`
    copies that folder path.
-6. Complete the manual checks in [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)
+7. Complete the manual checks in [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)
    before tagging or distributing the installer, and record skipped checks with
    reasons in the release notes.

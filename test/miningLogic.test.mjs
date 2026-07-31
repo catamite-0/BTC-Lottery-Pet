@@ -331,7 +331,15 @@ test("real mining start validation catches local configuration mistakes", () => 
   );
   assert.equal(
     realMiningStartError(validConfig({ pool_password: `${"x".repeat(129)}` })),
-    "Pool password must be 128 characters or fewer and cannot contain control characters.",
+    "Pool password must be 128 UTF-8 bytes or fewer and cannot contain control characters.",
+  );
+  assert.equal(
+    realMiningStartError(validConfig({ pool_password: "密".repeat(43) })),
+    "Pool password must be 128 UTF-8 bytes or fewer and cannot contain control characters.",
+  );
+  assert.equal(
+    realMiningStartError(validConfig({ pool_password: "abc\u0085" })),
+    "Pool password must be 128 UTF-8 bytes or fewer and cannot contain control characters.",
   );
   assert.equal(
     realMiningStartError(validConfig({ worker_name: "desk.1" })),
@@ -389,7 +397,12 @@ test("mining events keep block candidates separate from jackpot UI events", () =
     hash: "00ff",
     difficulty: 123,
     timestamp: "2026-06-15T00:00:00Z",
+    submission_status: "accepted",
+    submission_message:
+      "The pool accepted the Stratum submission; this is not Bitcoin-network confirmation.",
     pool: "public-pool.io:3333",
+    record_saved: true,
+    record_file: "block-candidate-job-1.json",
   };
 
   const accepted = createShareEvent("share_accepted", "cpu", "Share accepted");
@@ -430,7 +443,11 @@ test("jackpot sequence advances through the required presentation phases", () =>
     hash: "00ff",
     difficulty: 123,
     timestamp: "2026-06-15T00:00:00Z",
+    submission_status: "unknown",
+    submission_message: "No pool confirmation was received before the response deadline.",
     pool: "public-pool.io:3333",
+    record_saved: true,
+    record_file: "block-candidate-job-1.json",
   };
 
   const sequence = startJackpotSequence(block, true, "cpu");
@@ -463,95 +480,16 @@ test("mining engine facade owns start stop status calls", async () => {
   assert.equal(engine.status().kind, "cpu");
 });
 
-test("runtime mining profile applies safe automatic density recommendations", () => {
-  const recommendation = {
-    schemaVersion: 1,
-    mode: "run_density_default",
-    priority: "run",
-    selectedIntent: "best_efficiency",
-    canApplyProfile: true,
-    manualApprovalRequired: false,
-    autoApplyAllowed: true,
-    protectsLowPowerLane: true,
-    opensHighHashBurst: false,
-    targetStepId: "cpu:4",
-    targetStepSummary: "CPU 4 thread density lane",
-    targetCpuThreads: 4,
-    defaultPointRole: "max_efficiency",
-    defaultPointHashrate: 220_000_000,
-    defaultPointWatts: 12,
-    burstAllowed: false,
-    burstHashrate: null,
-    burstWatts: null,
-    recoveryCooldownSeconds: null,
-    recoveryObservedSeconds: null,
-    recoveryCooldownRemainingSeconds: null,
-    recoveryResumeAllowed: false,
-    recoveryResumeCondition: null,
-    recoveryQualityLossHashrate: null,
-    recoveryThrottleHashrateAtRisk: null,
-    guardrails: [],
-    summary: "Adopt measured density lane.",
-    nextStep: "Run density lane.",
-  };
-
-  const profile = resolveRuntimeMiningProfile(
-    validConfig({ performance_preset: "custom", cpu_threads: 1 }),
+test("runtime mining profile always uses the saved local CPU preset", () => {
+  const normal = resolveRuntimeMiningProfile(
+    validConfig({ performance_preset: "normal", cpu_threads: 1 }),
     systemInfo,
-    recommendation,
   );
-
-  assert.equal(profile.appliedRecommendation, true);
-  assert.equal(profile.source, "runtime_recommendation");
-  assert.equal(profile.cpuThreads, 4);
-  assert.match(profile.reason, /CPU 4 thread density lane/);
-});
-
-test("runtime mining profile keeps manual burst out of auto start", () => {
-  const baseRecommendation = {
-    schemaVersion: 1,
-    mode: "manual_burst",
-    priority: "manual",
-    selectedIntent: "best_hashrate",
-    canApplyProfile: true,
-    manualApprovalRequired: true,
-    autoApplyAllowed: false,
-    protectsLowPowerLane: true,
-    opensHighHashBurst: true,
-    targetStepId: "cpu:burst",
-    targetStepSummary: "CPU burst",
-    targetCpuThreads: 8,
-    defaultPointRole: "balanced",
-    defaultPointHashrate: 220_000_000,
-    defaultPointWatts: 12,
-    burstAllowed: true,
-    burstHashrate: 410_000_000,
-    burstWatts: 30,
-    recoveryCooldownSeconds: null,
-    recoveryObservedSeconds: null,
-    recoveryCooldownRemainingSeconds: null,
-    recoveryResumeAllowed: false,
-    recoveryResumeCondition: null,
-    recoveryQualityLossHashrate: null,
-    recoveryThrottleHashrateAtRisk: null,
-    guardrails: [],
-    summary: "Manual burst only.",
-    nextStep: "Require explicit manual burst.",
-  };
-
-  const manualBurst = resolveRuntimeMiningProfile(
+  const custom = resolveRuntimeMiningProfile(
     validConfig({ performance_preset: "custom", cpu_threads: 2 }),
     systemInfo,
-    baseRecommendation,
-  );
-  const automaticBurst = resolveRuntimeMiningProfile(
-    validConfig({ cpu_threads: 1, performance_preset: "eco" }),
-    systemInfo,
-    { ...baseRecommendation, mode: "run_density_default", manualApprovalRequired: false, autoApplyAllowed: true, opensHighHashBurst: false },
   );
 
-  assert.equal(manualBurst.appliedRecommendation, false);
-  assert.equal(manualBurst.cpuThreads, 2);
-  assert.equal(automaticBurst.appliedRecommendation, true);
-  assert.equal(automaticBurst.cpuThreads, 8);
+  assert.deepEqual(normal, { cpuThreads: 4 });
+  assert.deepEqual(custom, { cpuThreads: 2 });
 });

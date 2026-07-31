@@ -4,16 +4,6 @@ import { normalizePetProfileId } from "./pets/profiles.js";
 export type { PetStatus } from "./domain/petState";
 export type PerformancePreset = "eco" | "normal" | "turbo" | "custom";
 
-export interface CpuRuntimeRecommendation {
-  canApplyProfile?: boolean | null;
-  autoApplyAllowed?: boolean | null;
-  manualApprovalRequired?: boolean | null;
-  opensHighHashBurst?: boolean | null;
-  targetCpuThreads?: number | null;
-  targetStepSummary?: string | null;
-  summary?: string | null;
-}
-
 export interface AppConfig {
   btc_address: string;
   pool_host: string;
@@ -71,7 +61,11 @@ export interface BlockFoundEvent {
   hash: string;
   difficulty: number;
   timestamp: string;
+  submission_status: "accepted" | "rejected" | "unknown";
+  submission_message: string | null;
   pool: string;
+  record_saved: boolean;
+  record_file: string | null;
 }
 
 export type MiningRuntimeEventPayload =
@@ -244,8 +238,9 @@ export function realMiningStartError(
   }
 
   const poolPassword = normalizePoolPassword(config.pool_password);
-  if (poolPassword.length > 128 || /[\u0000-\u001F\u007F]/.test(poolPassword)) {
-    return "Pool password must be 128 characters or fewer and cannot contain control characters.";
+  const poolPasswordBytes = new TextEncoder().encode(poolPassword).length;
+  if (poolPasswordBytes > 128 || /[\u0000-\u001F\u007F-\u009F]/.test(poolPassword)) {
+    return "Pool password must be 128 UTF-8 bytes or fewer and cannot contain control characters.";
   }
 
   if (!workerName || !/^[A-Za-z0-9_-]+$/.test(workerName)) {
@@ -328,65 +323,17 @@ export function threadsForPreset(
 }
 export interface RuntimeMiningProfile {
   cpuThreads: number;
-  appliedRecommendation: boolean;
-  source: "config" | "runtime_recommendation";
-  reason: string;
-}
-
-function clampRuntimeCpuThreads(value: number | null | undefined, systemInfo: SystemInfo) {
-  const availableThreads = Math.max(1, systemInfo.available_parallelism);
-  const normalized = Math.trunc(Number(value));
-  if (!Number.isFinite(normalized)) {
-    return null;
-  }
-  return Math.min(availableThreads, Math.max(1, normalized));
-}
-
-function recommendationCanAutoApply(recommendation: CpuRuntimeRecommendation | null | undefined) {
-  return Boolean(
-    recommendation?.canApplyProfile &&
-    recommendation.autoApplyAllowed &&
-    !recommendation.manualApprovalRequired &&
-    !recommendation.opensHighHashBurst,
-  );
 }
 
 export function resolveRuntimeMiningProfile(
   config: AppConfig,
   systemInfo: SystemInfo,
-  recommendation?: CpuRuntimeRecommendation | null,
 ): RuntimeMiningProfile {
-  const configCpuThreads = threadsForPreset(
-    config.performance_preset,
-    systemInfo,
-    Number(config.cpu_threads),
-  );
-  const fallback: RuntimeMiningProfile = {
-    cpuThreads: configCpuThreads,
-    appliedRecommendation: false,
-    source: "config",
-    reason: "Using saved runtime settings.",
-  };
-
-  if (!recommendationCanAutoApply(recommendation)) {
-    return fallback;
-  }
-
-  const nextCpuThreads = clampRuntimeCpuThreads(
-    recommendation?.targetCpuThreads,
-    systemInfo,
-  ) ?? configCpuThreads;
-
-  if (nextCpuThreads === configCpuThreads) {
-    return fallback;
-  }
-
   return {
-    cpuThreads: nextCpuThreads,
-    appliedRecommendation: true,
-    source: "runtime_recommendation",
-    reason: recommendation?.targetStepSummary
-      ? `Applied runtime recommendation: ${recommendation.targetStepSummary}.`
-      : recommendation?.summary ?? "Applied runtime recommendation.",
+    cpuThreads: threadsForPreset(
+      config.performance_preset,
+      systemInfo,
+      Number(config.cpu_threads),
+    ),
   };
 }

@@ -1,4 +1,5 @@
 {
+  "config_schema_version": 1,
   "btc_address": "",
   "pool_host": "public-pool.io",
   "pool_port": 3333,

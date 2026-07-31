@@ -1,6 +1,6 @@
 # Integration Contracts Ownership
 
-Use this scope when frontend and backend payloads, diagnostics, or startup configuration need to change together.
+Use this scope when frontend and backend payloads or startup configuration need to change together.
 
 Primary paths:
 
@@ -14,7 +14,6 @@ Primary paths:
 Allowed changes:
 
 - Tauri command request and response shapes
-- Diagnostic snapshot schema and frontend diagnostic sections
 - Startup config loading, normalization, and app shell wiring
 - Cross-layer tests that prove React and Rust agree on contracts
 

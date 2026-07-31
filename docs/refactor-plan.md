@@ -1,9 +1,13 @@
-# CPU-Only Refactor Plan
+# CPU-Only Refactor Plan (Historical)
 
-This document is the coordination contract for future project work. The project
-scope is intentionally narrow now: explicitly confirmed local CPU mining only.
-All active runtime, settings, diagnostics, and documentation should reinforce
-that local CPU boundary.
+This document records the refactor work that led through the 0.8 series; it is
+not the current product or release source of truth. Use `README.md`,
+`RELEASE_CHECKLIST.md`, and the current code for 0.9 behavior.
+
+The project remains explicitly confirmed local CPU mining only. References
+below to diagnostic export, pool diagnostics, the full-header runtime route,
+`TEST POOL`, `COPY DIAG`, or `SAVE DIAG` describe removed pre-0.9 behavior and
+must not be treated as active requirements.
 
 ## Current Baseline
 

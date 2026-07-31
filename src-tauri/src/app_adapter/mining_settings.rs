@@ -77,6 +77,14 @@ impl RealMiningSettings {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateSubmissionStatus {
+    Accepted,
+    Rejected,
+    Unknown,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct FoundBlockEvent {
     pub job_id: String,
@@ -86,6 +94,10 @@ pub struct FoundBlockEvent {
     pub hash: String,
     pub difficulty: f64,
     pub timestamp: String,
+    pub submission_status: CandidateSubmissionStatus,
+    pub submission_message: Option<String>,
+    pub record_saved: bool,
+    pub record_file: Option<String>,
     pub pool: String,
 }
 

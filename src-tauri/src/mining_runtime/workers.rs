@@ -1,7 +1,7 @@
 use std::{
     sync::{
         atomic::Ordering,
-        mpsc::{SyncSender, TrySendError},
+        mpsc::{Sender, SyncSender, TrySendError},
         Arc,
     },
     thread,
@@ -10,22 +10,44 @@ use std::{
 
 use tauri::AppHandle;
 
-use crate::mining_block::record_block_candidate;
 use crate::mining_events::{emit_runtime_event, MiningRuntimeEvent};
 use crate::mining_hash::{
     build_header_work, difficulty_from_hash, extranonce2_hex, found_block_event,
 };
 use crate::mining_log::log_message_for_session;
-use crate::mining_settings::RealMiningSettings;
+#[cfg(test)]
+use crate::mining_settings::CandidateSubmissionStatus;
+use crate::mining_settings::{FoundBlockEvent, RealMiningSettings};
 use crate::mining_state::{JobTemplate, ShareSubmission, SharedMiningState};
 
 pub(crate) use btc_mining_core::BestDifficultyTracker;
+
+#[derive(Clone)]
+pub(crate) struct BlockCandidateSubmission {
+    pub(crate) share: ShareSubmission,
+    pub(crate) event: FoundBlockEvent,
+}
+
+fn solution_requires_submission(meets_share: bool, meets_network: bool) -> bool {
+    meets_share || meets_network
+}
+
+fn enqueue_block_candidate(
+    sender: &Sender<BlockCandidateSubmission>,
+    share: ShareSubmission,
+    event: FoundBlockEvent,
+) -> bool {
+    sender
+        .send(BlockCandidateSubmission { share, event })
+        .is_ok()
+}
 
 struct HashWorkerContext {
     worker_index: usize,
     worker_count: usize,
     shared: Arc<SharedMiningState>,
     share_sender: SyncSender<ShareSubmission>,
+    candidate_sender: Sender<BlockCandidateSubmission>,
     app: AppHandle,
     pool: String,
     session_id: u64,
@@ -36,6 +58,7 @@ pub(crate) fn spawn_hash_workers(
     settings: &RealMiningSettings,
     shared: &Arc<SharedMiningState>,
     share_sender: &SyncSender<ShareSubmission>,
+    candidate_sender: &Sender<BlockCandidateSubmission>,
     app: &AppHandle,
 ) -> Vec<thread::JoinHandle<()>> {
     let pool = format!("{}:{}", settings.pool_host, settings.pool_port);
@@ -47,6 +70,7 @@ pub(crate) fn spawn_hash_workers(
     for worker_index in 0..settings.cpu_threads {
         let shared = Arc::clone(shared);
         let share_sender = share_sender.clone();
+        let candidate_sender = candidate_sender.clone();
         let worker_count = total_workers;
         let worker_app = app.clone();
         let worker_pool = pool.clone();
@@ -59,6 +83,7 @@ pub(crate) fn spawn_hash_workers(
                     worker_count,
                     shared,
                     share_sender,
+                    candidate_sender,
                     app: worker_app,
                     pool: worker_pool,
                     session_id,
@@ -82,6 +107,7 @@ fn hash_loop(context: HashWorkerContext) {
         worker_count,
         shared,
         share_sender,
+        candidate_sender,
         app,
         pool,
         session_id,
@@ -144,7 +170,7 @@ fn hash_loop(context: HashWorkerContext) {
                 let mut difficulty = improves_best
                     .then(|| best_tracker.record_words_improvement(&shared, &hash_words));
 
-                if meets_network {
+                let block_candidate = if meets_network {
                     let hash = crate::mining_kernel::hash_words_to_bytes(&hash_words);
                     let difficulty = difficulty.take().unwrap_or_else(|| {
                         let difficulty = difficulty_from_hash(&hash);
@@ -152,15 +178,23 @@ fn hash_loop(context: HashWorkerContext) {
                         best_tracker.refresh(&shared);
                         difficulty
                     });
-                    let event =
-                        found_block_event(&job, nonce, &extranonce2, &hash, difficulty, &pool);
-                    record_block_candidate(&app, session_id, &event);
-                }
+                    Some(found_block_event(
+                        &job,
+                        nonce,
+                        &extranonce2,
+                        &hash,
+                        difficulty,
+                        &pool,
+                    ))
+                } else {
+                    None
+                };
 
-                if meets_share {
+                if solution_requires_submission(meets_share, meets_network) {
                     best_tracker.refresh(&shared);
-                    if shared.stop.load(Ordering::Acquire)
-                        || shared.job_generation.load(Ordering::Acquire) != job.generation
+                    if block_candidate.is_none()
+                        && (shared.stop.load(Ordering::Acquire)
+                            || shared.job_generation.load(Ordering::Acquire) != job.generation)
                     {
                         completed_nonce_space = false;
                         break;
@@ -173,6 +207,13 @@ fn hash_loop(context: HashWorkerContext) {
                         ntime: job.ntime.clone(),
                         nonce,
                     };
+
+                    if let Some(event) = block_candidate {
+                        if !enqueue_block_candidate(&candidate_sender, submission, event) {
+                            return;
+                        }
+                        continue;
+                    }
 
                     match share_sender.try_send(submission) {
                         Ok(()) => {}
@@ -236,4 +277,65 @@ fn discard_invalid_job(
             message,
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+
+    use super::*;
+
+    fn sample_share(nonce: u32) -> ShareSubmission {
+        ShareSubmission {
+            generation: 1,
+            job_id: "job-candidate".into(),
+            extranonce2: "00000001".into(),
+            ntime: "5f5e1000".into(),
+            nonce,
+        }
+    }
+
+    fn sample_event() -> FoundBlockEvent {
+        FoundBlockEvent {
+            job_id: "job-candidate".into(),
+            nonce: "0000002a".into(),
+            ntime: "5f5e1000".into(),
+            extranonce2: "00000001".into(),
+            hash: "00".repeat(32),
+            difficulty: 42.0,
+            timestamp: "2026-07-30T00:00:00Z".into(),
+            submission_status: CandidateSubmissionStatus::Unknown,
+            submission_message: None,
+            pool: "pool.example:3333".into(),
+            record_saved: false,
+            record_file: None,
+        }
+    }
+
+    #[test]
+    fn network_solution_is_submitted_even_when_share_target_is_not_met() {
+        assert!(solution_requires_submission(false, true));
+        assert!(solution_requires_submission(true, false));
+        assert!(solution_requires_submission(true, true));
+        assert!(!solution_requires_submission(false, false));
+    }
+
+    #[test]
+    fn block_candidate_bypasses_a_full_normal_share_queue() {
+        let (normal_sender, _normal_receiver) = mpsc::sync_channel(1);
+        assert!(normal_sender.try_send(sample_share(1)).is_ok());
+        assert!(normal_sender.try_send(sample_share(2)).is_err());
+
+        let (candidate_sender, candidate_receiver) = mpsc::channel();
+        assert!(enqueue_block_candidate(
+            &candidate_sender,
+            sample_share(42),
+            sample_event(),
+        ));
+
+        let queued = candidate_receiver.recv().unwrap();
+        assert_eq!(queued.share.job_id, "job-candidate");
+        assert_eq!(queued.share.nonce, 42);
+        assert_eq!(queued.event.nonce, "0000002a");
+    }
 }

@@ -65,6 +65,8 @@ export default function PoolSettingsSection({
         <label className="full-width">
           POOL PASSWORD / HINT
           <input
+            type="password"
+            autoComplete="off"
             value={draftConfig.pool_password}
             onChange={(event) => setDraftConfig({ ...draftConfig, pool_password: event.target.value })}
             placeholder="x or d=1"

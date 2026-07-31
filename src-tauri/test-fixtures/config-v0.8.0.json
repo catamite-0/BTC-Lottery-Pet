@@ -1,0 +1,17 @@
+{
+  "btc_address": "",
+  "pool_host": "public-pool.io",
+  "pool_port": 3333,
+  "pool_password": "x",
+  "worker_name": "legacy-desk",
+  "cpu_threads": 2,
+  "performance_preset": "normal",
+  "enable_notifications": true,
+  "notify_on_jackpot": true,
+  "notify_on_share_accepted": false,
+  "notify_on_connection_error": true,
+  "heartbeat_interval": "1h",
+  "notification_channel": "webhook",
+  "webhook_url": "https://example.invalid/legacy-secret",
+  "pet_profile_id": "lucky-cat"
+}

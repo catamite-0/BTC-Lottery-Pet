@@ -162,6 +162,12 @@ function App() {
   const prevBestDiffRef = useRef(0);
 
   useEffect(() => {
+    if (activeMiningSessionId !== null) {
+      prevBestDiffRef.current = 0;
+    }
+  }, [activeMiningSessionId]);
+
+  useEffect(() => {
     if (!isMining) {
       prevBestDiffRef.current = activeBestDiff;
       return;

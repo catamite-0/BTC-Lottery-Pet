@@ -1,67 +1,50 @@
 # Changelog
 
-## Unreleased
-
-### Removed
-
-- Trimmed the app to a pure CPU mining pet. Removed the pool connection
-  diagnostic (`TEST POOL`), the diagnostic snapshot export (`COPY DIAG` /
-  `SAVE DIAG`, algorithm kernel benchmark, runtime algorithm snapshot), webhook
-  and heartbeat notifications, and the unused full-header CPU kernel — the
-  backend now runs the midstate SHA-256d kernel only.
-- Dropped the `heartbeat_interval`, `notification_channel`, and `webhook_url`
-  config fields, the four related Tauri commands, and their CSP-independent
-  network egress. Local Windows toast notifications, the jackpot presentation,
-  and the block-height display are retained.
+## 0.9.0 - Unreleased
 
 ### Changed
 
-- Made `src-tauri` a Cargo workspace that includes the `btc-hash-core`,
-  `btc-hash-cpu`, and `btc-mining-core` crates, so `cargo test --workspace` and
-  `cargo clippy --workspace` (used by CI and `verify.ps1`) now cover the hash
-  and protocol crates instead of silently skipping them.
+- Narrowed the application to explicitly confirmed local CPU mining with the
+  optimized reusable-midstate SHA-256d kernel as the only production hash path.
+- Made `src-tauri` a Cargo workspace so tests and Clippy cover the app plus the
+  `btc-hash-core`, `btc-hash-cpu`, and `btc-mining-core` crates.
+- Added disk-only config schema versioning. Legacy 0.8 configurations are
+  backed up once before removed fields are migrated out of the active config.
+- Preserved the effective CPU thread count of legacy Normal and Turbo settings
+  by converting every legacy preset to Custom with its stored count.
+- Updated application and installer metadata to `0.9.0`; local and CI gates now
+  reject application, changelog, or tag mismatches and generate a SHA-256 file
+  alongside the Windows installer.
+- Made Settings tabs size themselves from the actual tab count and use a 2x2
+  layout in the narrow default window.
 
-- Narrowed the project to the desktop pet plus explicitly confirmed real CPU
-  mining.
-- Removed non-CPU compute paths, remote hash planning layers, related settings,
-  diagnostics, tests, dependencies, and stale documentation.
-- Simplified settings into pet, device summary, pool/CPU runtime, diagnostics,
-  and save/reset flows.
-- Replaced the previous algorithm evidence dashboard with a small CPU runtime
-  snapshot focused on configured threads, observed rate, shares, and active
-  hash route.
-- Refined Dashboard and Settings presentation with grouped metric panels,
-  sentence-case controls, segmented CPU presets, checkbox notification toggles,
-  and in-settings pet previews.
-- Clarified release documentation for browser preview limits, desktop-only pool
-  diagnostics, diagnostic copy/save formats, release-gating commands, and the
-  current CPU-only limitation set.
+### Removed
+
+- Removed pool diagnostics, diagnostic snapshot export, webhook and heartbeat
+  notifications, runtime algorithm recommendations, and the unused full-header
+  hash path. Local Windows notifications and block-candidate records remain.
+- Removed extra pet profiles from the current prototype and dropped the unused
+  `ureq` network dependency.
 
 ### Hardened
 
-- Real mining command payloads now carry only CPU worker settings and pool
-  configuration.
-- Backend diagnostics no longer expose removed compute device fields.
-- Legacy config keys for removed compute paths are ignored instead of surfaced
-  back into active UI or command DTOs.
-- CPU hash tests now cover the specialized 80-byte full-header path, midstate
-  equivalence, compact `nbits` edge cases, target word comparisons, and
-  benchmark window validation.
-- Stratum parsing validates job hex fields before worker dispatch and surfaces
-  invalid active jobs through logs and an `Invalid Pool Job` runtime event.
-- Share submission tracking now records job/nonce metadata, expires unanswered
-  submissions after 30 seconds, drains old queued shares on reconnect, and logs
-  queue-full drops without unbounded pending state.
-- Mining logs are session-scoped on the frontend so stale session log payloads
-  are ignored after a newer start.
-- Diagnostic save bundles preserve structured frontend `bodyJson` data and can
-  include the current frontend dev log.
+- Preserved partial Stratum messages across socket timeouts, enforced a
+  cumulative 64 KiB cap and five-second absolute deadline, and returned to the
+  STOP-aware loop after every incremental socket read.
+- Refused to overwrite a config written by a newer schema, and required a
+  successful local backup before replacing a broken or legacy config.
+- Kept deterministic equivalence coverage between the optimized midstate path
+  and standard double SHA-256 across nonce windows and mutated headers.
+- Locked local and CI Rust verification to the checked-in workspace lock file.
 
 ### Validation
 
+- `npm run check:version`
+- `npm audit --omit=dev`
 - `npm run test:frontend`
 - `npm run build`
-- `cargo test --manifest-path src-tauri\Cargo.toml`
+- `cargo test --locked --workspace --manifest-path src-tauri\Cargo.toml`
+- `cargo clippy --locked --workspace --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`
 
 ## 0.8.0 - 2026-07-03
 

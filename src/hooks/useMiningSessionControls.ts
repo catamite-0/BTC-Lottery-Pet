@@ -39,7 +39,7 @@ interface UseMiningSessionControlsOptions {
   setShowSettings: Dispatch<SetStateAction<boolean>>;
   setShowCpuWarning: Dispatch<SetStateAction<boolean>>;
   appendPetLog: (message: string) => void;
-  appendDevLog: (source: "stratum" | "system" | "diagnostic", message: string) => void;
+  appendDevLog: (source: "stratum" | "system", message: string) => void;
 }
 
 export function useMiningSessionControls({
@@ -75,15 +75,15 @@ export function useMiningSessionControls({
       hashrate: 0,
       accepted_shares: 0,
       rejected_shares: 0,
+      stale_shares_dropped: 0,
+      queued_shares_dropped: 0,
+      best_difficulty: 0,
       share_difficulty: 0,
       current_job_id: "",
       connection_status: "Connecting",
     }));
 
     try {
-      if (runtimeProfile.appliedRecommendation) {
-        appendDevLog("diagnostic", runtimeProfile.reason);
-      }
       appendDevLog("stratum", `Starting CPU mining on ${config.pool_host}:${config.pool_port}`);
       const sessionId = await startRealMining({
         poolHost: config.pool_host,

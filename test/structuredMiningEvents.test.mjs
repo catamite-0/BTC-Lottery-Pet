@@ -30,7 +30,11 @@ const blockCandidate = {
   hash: "0000000000000000000000000000000000000000000000000000000000000001",
   difficulty: 1,
   timestamp: "2026-07-05T00:00:00Z",
+  submission_status: "unknown",
+  submission_message: "No pool confirmation was received before the response deadline.",
   pool: "public-pool.io:3333",
+  record_saved: true,
+  record_file: "block-candidate-job-1.json",
 };
 
 test("structured mining events derive connection state from runtime payloads", () => {

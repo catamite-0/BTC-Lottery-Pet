@@ -1,6 +1,6 @@
 pub(crate) use btc_mining_core::{
-    handle_server_message_with_callbacks, read_stratum_line, write_message, ProtocolEvent,
-    ProtocolState,
+    handle_server_message_with_callbacks, write_message, ProtocolEvent, ProtocolState,
+    StratumLineRead, StratumLineReader,
 };
 #[cfg(test)]
 pub(crate) use btc_mining_core::{

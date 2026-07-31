@@ -1,9 +1,10 @@
 {
   "name": "btc-lottery-pet",
   "private": true,
-  "version": "0.8.0",
+  "version": "0.9.0",
   "type": "module",
   "scripts": {
+    "check:version": "node scripts/check-version.mjs",
     "dev": "vite --configLoader runner",
     "build": "tsc && vite build --configLoader runner",
     "test:frontend": "tsc -p tsconfig.frontend-test.json && node scripts/run-frontend-tests.mjs",

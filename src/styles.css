@@ -828,7 +828,7 @@ h2 {
 .settings-section-tabs {
   display: grid;
   gap: 5px;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
   margin: 8px 0;
 }
 
@@ -2594,7 +2594,7 @@ footer > span:not(.dot):not(.cpu) {
 
 @media (max-width: 560px) {
   .settings-section-tabs {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .form-grid {
@@ -3317,7 +3317,7 @@ footer > span:not(.dot):not(.cpu) {
 }
 
 .settings-section-tabs {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
   position: sticky;
   top: 0;
   z-index: 2;
@@ -3500,7 +3500,7 @@ footer > span:not(.dot):not(.cpu) {
 
 @media (max-width: 560px) {
   .settings-section-tabs {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .mining-control-panel.dashboard .control-status-grid {

@@ -58,11 +58,17 @@ maintainers can create `v*` tags.
 
 `.github/workflows/release.yml` has two safe entry paths:
 
-- Manual dispatch builds, verifies, attests, and stores an installer artifact.
-  It never creates a GitHub Release.
+- Manual dispatch builds, verifies, attests, and stores an installer artifact
+  whose Actions artifact name ends in `UNSIGNED-TEST-ONLY`. The archive also
+  contains `UNSIGNED-TEST-ONLY.txt`, and both exact-file verification and the
+  attestation include that marker. Broken, untrusted, or tampered signatures
+  still fail. Manual artifacts never create a GitHub Release.
 - A strict `vX.Y.Z` tag whose commit is contained in `origin/main` runs the same
-  build and creates a **draft** GitHub Release from the exact downloaded
-  artifact.
+  build only after the final installer has a `Valid`, embedded Authenticode
+  signature from the configured publisher identity and a trusted timestamp.
+  The workflow fails before checksum creation, upload, attestation, or Release
+  creation otherwise. A passing tag creates a **draft** GitHub Release from the
+  exact downloaded artifact.
 
 Only the final draft-release job receives `contents: write`. The build job is
 read-only, and the attestation job does not check out or execute repository
@@ -72,7 +78,43 @@ do not replace Windows Authenticode signing.
 Do not publish the draft until the checksum, attestation, signature status, and
 manual Windows smoke checks have been reviewed.
 
+## Azure Artifact Signing handoff
+
+The project does not yet have an eligible Azure subscription or verified
+Artifact Signing identity. Do not add Azure actions, credentials, or paid
+resources until the owner has created an eligible subscription and completed
+the required identity verification. Until then, the release guard intentionally
+blocks every `v*` release while manual dispatch remains available for explicitly
+unsigned test evidence.
+
+When Azure Artifact Signing is ready, use GitHub OIDC and keep the signing key
+inside Azure. Set the repository variable `AZURE_ARTIFACT_SIGNING_SUBJECT` to
+the exact full `SignerCertificate.Subject` issued for the verified signing
+profile. The guard binds releases to this stable identity field instead of a
+short-lived leaf-certificate thumbprint; update the variable deliberately if
+the verified signing identity changes.
+
+The production order must be:
+
+1. Build the production application executable without creating the NSIS
+   bundle.
+2. Sign and timestamp the inner application executable, then verify it.
+3. Build the NSIS installer from that signed executable.
+4. Sign and timestamp the final NSIS installer, then run
+   `scripts/verify-installer-signature.ps1` with the exact expected signer
+   subject.
+5. Generate the `.sha256` file only after the final installer signature is
+   complete, then upload, attest, and create the draft Release.
+
+Signing changes executable bytes, so a checksum generated before either final
+signing operation is not release evidence.
+
 ## Release sequence
+
+This sequence becomes release-enabled only after the Azure signing actions,
+OIDC trust, verified signing profile, and repository publisher variable are in
+place. Until then, use manual unsigned test artifacts only; tagged releases are
+intentionally blocked.
 
 1. Merge a green pull request into `main`.
 2. Replace `Unreleased` in the first changelog heading with the release date.

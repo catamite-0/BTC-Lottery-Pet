@@ -51,6 +51,10 @@ jobs:
       - name: Check Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
+      - name: Test Authenticode release guard
+        shell: pwsh
+        run: .\scripts\test-installer-signature-guard.ps1
+
       - name: Run full Windows gate
         shell: pwsh
         run: .\scripts\verify.ps1 -Strict

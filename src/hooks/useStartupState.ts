@@ -11,7 +11,6 @@ interface UseStartupStateOptions {
   runningInTauri: boolean;
   fallbackConfig: AppConfig;
   fallbackSystemInfo: SystemInfo;
-  appendDevLog: (source: "system", message: string) => void;
   appendPetLog: (message: string) => void;
   setErrorMessage: Dispatch<SetStateAction<string | null>>;
   setConfig: Dispatch<SetStateAction<AppConfig>>;
@@ -24,7 +23,6 @@ export function useStartupState({
   runningInTauri,
   fallbackConfig,
   fallbackSystemInfo,
-  appendDevLog,
   appendPetLog,
   setErrorMessage,
   setConfig,
@@ -65,7 +63,6 @@ export function useStartupState({
 
       const adaptation = adaptConfigForHardware(loadedConfig, detectedSystemInfo);
       if (adaptation.changed && adaptation.messages.length > 0) {
-        appendDevLog("system", `CPU runtime adaptation: ${adaptation.messages.join(" ")}`);
         appendPetLog("Adjusted settings for this device.");
       }
 
@@ -81,7 +78,6 @@ export function useStartupState({
       cancelled = true;
     };
   }, [
-    appendDevLog,
     appendPetLog,
     fallbackConfig,
     fallbackSystemInfo,

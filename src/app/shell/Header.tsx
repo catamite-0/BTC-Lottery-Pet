@@ -1,6 +1,6 @@
 interface HeaderProps {
-  displayMode: "compact" | "detail";
-  setDisplayMode: React.Dispatch<React.SetStateAction<"compact" | "detail">>;
+  detailsOpen: boolean;
+  toggleDetails: () => void;
   alwaysOnTop: boolean;
   toggleAlwaysOnTop: () => void;
   settingsDisabled: boolean;
@@ -8,8 +8,8 @@ interface HeaderProps {
 }
 
 export default function Header({
-  displayMode,
-  setDisplayMode,
+  detailsOpen,
+  toggleDetails,
   alwaysOnTop,
   toggleAlwaysOnTop,
   settingsDisabled,
@@ -23,13 +23,14 @@ export default function Header({
       </div>
       <div className="header-actions">
         <button
-          aria-label={displayMode === "compact" ? "Switch to dashboard view" : "Switch to widget view"}
-          className={`mode-button ${displayMode === "detail" ? "armed" : ""}`}
-          onClick={() => setDisplayMode((mode) => (mode === "compact" ? "detail" : "compact"))}
-          title={displayMode === "compact" ? "Switch to dashboard view" : "Switch to widget view"}
+          aria-controls="mining-details"
+          aria-expanded={detailsOpen}
+          className={`details-button ${detailsOpen ? "active" : ""}`}
+          onClick={toggleDetails}
+          title={detailsOpen ? "Hide mining details" : "Show mining details"}
           type="button"
         >
-          {displayMode === "compact" ? "Dashboard" : "Widget"}
+          Details
         </button>
         <button
           aria-pressed={alwaysOnTop}

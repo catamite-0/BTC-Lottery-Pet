@@ -1,6 +1,5 @@
 import type { CSSProperties } from "react";
 import type { PetStatus } from "../../domain/petState";
-import type { RealMiningStats } from "../../miningLogic";
 import type { PetCompanionSnapshot } from "../../pets/companion";
 import type { PetProfile } from "../../pets/profiles";
 
@@ -11,12 +10,6 @@ interface PetDisplayProps {
   companion: PetCompanionSnapshot;
   petStatus: PetStatus;
   isMiningAnimation: boolean;
-  displayMode: "compact" | "detail";
-  compactRuntimeLabel: string;
-  displayedHashrate: string;
-  realStats: RealMiningStats;
-  blockHeight: string;
-  formatDifficulty: (value: number) => string;
 }
 
 function colorChannel(hexColor: string) {
@@ -66,12 +59,6 @@ export default function PetDisplay({
   companion,
   petStatus,
   isMiningAnimation,
-  displayMode,
-  compactRuntimeLabel,
-  displayedHashrate,
-  realStats,
-  blockHeight,
-  formatDifficulty,
 }: PetDisplayProps) {
   const appearance = petProfile.states[petStatus];
   const containerClass = [
@@ -85,14 +72,8 @@ export default function PetDisplay({
     `pet-mood-${companion.mood}`,
     `pet-profile-${petProfile.id}`,
   ].join(" ");
-  const careMeters = [
-    companion.care.energy,
-    companion.care.bond,
-    companion.care.focus,
-  ];
-
   return (
-    <div className={`pet-display-stack pet-display-stack-${displayMode}`}>
+    <div className="pet-display-stack">
       <div
         aria-label={`${petProfile.accessibilityLabel}: ${companion.ariaLabel}`}
         className={containerClass}
@@ -175,27 +156,8 @@ export default function PetDisplay({
             <b>{companion.moodLabel}</b>
             <span>{companion.reaction}</span>
           </div>
-          <div className="pet-care-meters" aria-label="Pet care meters">
-            {careMeters.map((meter) => (
-              <span key={meter.label}>
-                <b>{meter.label}</b>
-                <i>
-                  <em style={{ width: `${meter.value}%` }} />
-                </i>
-              </span>
-            ))}
-          </div>
         </div>
       </div>
-
-      {displayMode === "compact" && (
-        <div
-          className="mini-stats-line"
-          title={`Best difficulty ${formatDifficulty(realStats.best_difficulty)} / block ${blockHeight}`}
-        >
-          <span>{compactRuntimeLabel} {displayedHashrate}</span>
-        </div>
-      )}
     </div>
   );
 }

@@ -2,13 +2,7 @@ import { useCallback, useEffect, useState, useRef } from "react";
 import AppShell from "./app/shell/AppShell";
 import { idleJackpotSequence } from "./domain/jackpotSequence";
 import type { JackpotSequenceSnapshot } from "./domain/jackpotSequence";
-import {
-  createDevLogEntry,
-  createPetLogEntry,
-  latestPetLogMessage,
-  petLogMessageFromMiningEvent,
-} from "./domain/miningLogs";
-import type { DevLogEntry, PetLogEntry } from "./domain/miningLogs";
+import { petLogMessageFromMiningEvent } from "./domain/miningLogs";
 import type { MiningEvent } from "./domain/miningEvents";
 import {
   derivePetState,
@@ -21,7 +15,6 @@ import {
   idleRealStats,
   runningInTauri,
 } from "./app/appDefaults";
-import { useBlockHeight } from "./hooks/useBlockHeight";
 import { useLogActions } from "./hooks/useLogActions";
 import { useJackpotFlow } from "./hooks/useJackpotFlow";
 import { useMiningEvents } from "./hooks/useMiningEvents";
@@ -29,7 +22,6 @@ import { useStartupState } from "./hooks/useStartupState";
 import { useMiningSessionControls } from "./hooks/useMiningSessionControls";
 import { useSettingsActions } from "./hooks/useSettingsActions";
 import { useWindowShellControls } from "./hooks/useWindowShellControls";
-import { notificationSettingsFromConfig } from "./notificationSettings";
 import { getPetProfile } from "./pets/profiles";
 import { threadsForPreset } from "./miningLogic";
 import type {
@@ -48,7 +40,6 @@ function useLatestRef<T>(val: T) {
 
 function App() {
   const [isMining, setIsMining] = useState(false);
-  const [appUptime, setAppUptime] = useState(0);
   const [miningUptime, setMiningUptime] = useState(0);
   const [config, setConfig] = useState<AppConfig>(fallbackConfig);
   const [draftConfig, setDraftConfig] = useState<AppConfig>(fallbackConfig);
@@ -59,10 +50,7 @@ function App() {
   const [activeRuntimeProfile, setActiveRuntimeProfile] = useState<RuntimeMiningProfile | null>(null);
   const [activeMiningSessionId, setActiveMiningSessionId] = useState<number | null>(null);
   const [miningControlPending, setMiningControlPending] = useState(false);
-  const blockHeight = useBlockHeight();
   const [latestLog, setLatestLog] = useState("Ready for CPU mining.");
-  const [petLogs, setPetLogs] = useState<PetLogEntry[]>([]);
-  const [devLogs, setDevLogs] = useState<DevLogEntry[]>([]);
   const [lastMiningEvent, setLastMiningEvent] = useState<MiningEvent | null>(null);
   const [attentionEvent, setAttentionEvent] = useState<MiningEvent | null>(null);
   const [lastShare, setLastShare] = useState("None");
@@ -70,7 +58,7 @@ function App() {
     useState<JackpotSequenceSnapshot>(idleJackpotSequence);
 
   const [isCoolingDown, setIsCoolingDown] = useState(false);
-  const [displayMode, setDisplayMode] = useState<"compact" | "detail">("compact");
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [systemInfo, setSystemInfo] = useState<SystemInfo>(fallbackSystemInfo);
   const [hardwareReady, setHardwareReady] = useState(false);
   const coolingDownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,13 +68,7 @@ function App() {
   const activeMiningSessionIdRef = useLatestRef(activeMiningSessionId);
 
   const appendPetLog = useCallback((message: string) => {
-    const entry = createPetLogEntry(message);
-    setPetLogs((current) => [entry, ...current].slice(0, 20));
-    setLatestLog(latestPetLogMessage(entry));
-  }, []);
-  const appendDevLog = useCallback((source: DevLogEntry["source"], message: string) => {
-    const entry = createDevLogEntry(source, message);
-    setDevLogs((current) => [entry, ...current].slice(0, 80));
+    setLatestLog(message);
   }, []);
   const emitMiningEvent = useCallback((event: MiningEvent) => {
     if (event.level !== "LOW_LEVEL") {
@@ -109,14 +91,6 @@ function App() {
     };
   }, []);
 
-  // App Uptime Timer
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setAppUptime((value) => value + 1);
-    }, 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
   // Mining Uptime Timer
   useEffect(() => {
     if (!isMining) return;
@@ -130,7 +104,6 @@ function App() {
     runningInTauri,
     fallbackConfig,
     fallbackSystemInfo,
-    appendDevLog,
     appendPetLog,
     setErrorMessage,
     setConfig,
@@ -152,7 +125,6 @@ function App() {
     setRealStats,
     setLastShare,
     setJackpotSequence,
-    appendDevLog,
     appendPetLog,
     emitMiningEvent,
   });
@@ -191,7 +163,6 @@ function App() {
     setShowSettings,
     setErrorMessage,
     appendPetLog,
-    appendDevLog,
   });
 
   const { alwaysOnTop, toggleAlwaysOnTop } = useWindowShellControls({
@@ -220,8 +191,6 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [attentionEvent]);
 
-  const acceptedShares = realStats.accepted_shares;
-  const rejectedShares = realStats.rejected_shares;
   const effectiveCpuThreads = activeRuntimeProfile
     ? activeRuntimeProfile.cpuThreads
     : threadsForPreset(config.performance_preset, systemInfo, Number(config.cpu_threads));
@@ -257,7 +226,6 @@ function App() {
     setShowSettings,
     setShowCpuWarning,
     appendPetLog,
-    appendDevLog,
   });
   const {
     dismissJackpotSequence,
@@ -275,40 +243,28 @@ function App() {
     activePetProfile,
     miningEngineStatus,
     realStats,
-    isMining,
     petState,
     petStatus,
-    latestLog,
     lastMiningEvent,
-    acceptedShares,
-    rejectedShares,
-    activeBestDiff,
+    lastShare,
     effectiveCpuThreads,
     miningUptime,
-    appUptime,
-    blockHeight,
-    petLogsCount: petLogs.length,
-    devLogsCount: devLogs.length,
   });
   return (
     <AppShell
-      displayMode={displayMode}
-      setDisplayMode={setDisplayMode}
+      detailsOpen={detailsOpen}
+      setDetailsOpen={setDetailsOpen}
       activePetProfile={activePetProfile}
       petState={petState}
       petStatus={petStatus}
       jackpotSequence={jackpotSequence}
-      config={config}
       isMining={isMining}
       isCoolingDown={isCoolingDown}
       miningControlPending={miningControlPending}
       alwaysOnTop={alwaysOnTop}
       toggleAlwaysOnTop={toggleAlwaysOnTop}
       dashboardViewModel={dashboardViewModel}
-      realStats={realStats}
-      blockHeight={blockHeight}
       miningEngine={miningEngine}
-      lastShare={lastShare}
       latestLog={latestLog}
       openLogs={openLogs}
       copyLogPath={copyLogPath}

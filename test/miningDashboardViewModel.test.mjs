@@ -45,6 +45,10 @@ function metricValue(metrics, label) {
   return metrics.find(([metricLabel]) => metricLabel === label)?.[1];
 }
 
+function detailSection(viewModel, title) {
+  return viewModel.detailSections.find((section) => section.title === title)?.metrics ?? [];
+}
+
 test("mining dashboard view model keeps idle CPU display values compact", () => {
   const config = validConfig();
   const viewModel = createMiningDashboardViewModel({
@@ -58,29 +62,29 @@ test("mining dashboard view model keeps idle CPU display values compact", () => 
       label: "IDLE",
     },
     realStats: idleRealStats,
-    isMining: false,
     petState: "IDLE",
     petStatus: "Sleeping",
-    latestLog: "Ready for CPU mining.",
     lastMiningEvent: null,
-    acceptedShares: 0,
-    rejectedShares: 0,
-    activeBestDiff: 0,
+    lastShare: "None",
     effectiveCpuThreads: 1,
     miningUptime: 0,
-    appUptime: 300,
-    blockHeight: "900000",
-    petLogsCount: 0,
-    devLogsCount: 0,
   });
 
   assert.equal(viewModel.displayedHashrate, "0 H/s");
-  assert.equal(viewModel.compactRuntimeLabel, "CPU");
   assert.equal(viewModel.modeDescription, "Local CPU mining");
-  assert.equal(metricValue(viewModel.metrics, "SHARES A / R"), "0 / 0");
-  assert.equal(metricValue(viewModel.metrics, "STALE DROPS"), "0");
-  assert.equal(metricValue(viewModel.resourceMetrics, "CPU THREADS"), "1");
-  assert.equal(metricValue(viewModel.resourceMetrics, "EVENT"), "Waiting");
+  assert.equal(metricValue(viewModel.summaryMetrics, "SHARES A / R"), "0 / 0");
+  assert.equal(metricValue(viewModel.summaryMetrics, "CONNECTION"), "Stopped");
+  assert.equal(metricValue(detailSection(viewModel, "Session"), "STALE DROPS"), "0");
+  assert.equal(metricValue(detailSection(viewModel, "System"), "CPU THREADS"), "1");
+  assert.equal(metricValue(detailSection(viewModel, "Session"), "LAST EVENT"), "Waiting");
+
+  const allLabels = [
+    ...viewModel.summaryMetrics,
+    ...viewModel.detailSections.flatMap((section) => section.metrics),
+  ].map(([label]) => label);
+  for (const removedLabel of ["LUCK", "STREAK", "NET DIFF", "ETA BLOCK", "BLOCK HEIGHT"]) {
+    assert.equal(allLabels.includes(removedLabel), false);
+  }
 });
 
 test("mining dashboard view model exposes CPU real mining resource status", () => {
@@ -112,30 +116,23 @@ test("mining dashboard view model exposes CPU real mining resource status", () =
       label: "CPU mining",
     },
     realStats,
-    isMining: true,
     petState: "MINING_CPU",
     petStatus: "Mining",
-    latestLog: "Job received",
     lastMiningEvent: null,
-    acceptedShares: realStats.accepted_shares,
-    rejectedShares: realStats.rejected_shares,
-    activeBestDiff: realStats.best_difficulty,
+    lastShare: "Share accepted: diff=1024",
     effectiveCpuThreads: 4,
     miningUptime: 60,
-    appUptime: 600,
-    blockHeight: "900001",
-    petLogsCount: 1,
-    devLogsCount: 2,
   });
 
-  assert.equal(viewModel.compactRuntimeLabel, "CPU");
-  assert.equal(viewModel.modeLabel, "CPU");
   assert.equal(viewModel.modeDescription, "Local CPU mining");
   assert.equal(viewModel.poolStatus, "public-pool.io:3333");
   assert.equal(viewModel.authStatus, "Authorized");
   assert.equal(viewModel.jobStatus, "job-1");
-  assert.equal(metricValue(viewModel.metrics, "SHARES A / R"), "3 / 1");
-  assert.equal(metricValue(viewModel.metrics, "STALE DROPS"), "2");
-  assert.equal(metricValue(viewModel.resourceMetrics, "CPU THREADS"), "4");
-  assert.equal(metricValue(viewModel.resourceMetrics, "ENGINE"), "CPU");
+  assert.equal(metricValue(viewModel.summaryMetrics, "SHARES A / R"), "3 / 1");
+  assert.equal(metricValue(viewModel.summaryMetrics, "BEST DIFF"), "4,096");
+  assert.equal(metricValue(detailSection(viewModel, "Session"), "STALE DROPS"), "2");
+  assert.equal(metricValue(detailSection(viewModel, "Session"), "LAST SHARE"), "Share accepted: diff=1024");
+  assert.equal(metricValue(detailSection(viewModel, "System"), "CPU THREADS"), "4");
+  assert.equal(metricValue(detailSection(viewModel, "System"), "ENGINE"), "CPU");
+  assert.equal(metricValue(detailSection(viewModel, "Connection"), "POOL DIFF"), "1,024");
 });

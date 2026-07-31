@@ -39,7 +39,6 @@ interface UseMiningSessionControlsOptions {
   setShowSettings: Dispatch<SetStateAction<boolean>>;
   setShowCpuWarning: Dispatch<SetStateAction<boolean>>;
   appendPetLog: (message: string) => void;
-  appendDevLog: (source: "stratum" | "system", message: string) => void;
 }
 
 export function useMiningSessionControls({
@@ -63,7 +62,6 @@ export function useMiningSessionControls({
   setShowSettings,
   setShowCpuWarning,
   appendPetLog,
-  appendDevLog,
 }: UseMiningSessionControlsOptions) {
   const startRealMiningConfirmed = async (runtimeProfile: RuntimeMiningProfile) => {
     setMiningControlPending(true);
@@ -84,7 +82,6 @@ export function useMiningSessionControls({
     }));
 
     try {
-      appendDevLog("stratum", `Starting CPU mining on ${config.pool_host}:${config.pool_port}`);
       const sessionId = await startRealMining({
         poolHost: config.pool_host,
         poolPort: config.pool_port,
@@ -101,7 +98,6 @@ export function useMiningSessionControls({
       setActiveRuntimeProfile(null);
       setActiveMiningSessionId(null);
       setErrorMessage(String(error));
-      appendDevLog("stratum", `Start CPU mining failed: ${formatError(error)}`);
       setRealStats((current) => ({ ...current, connection_status: "Connection Error" }));
     } finally {
       setMiningControlPending(false);
@@ -177,10 +173,8 @@ export function useMiningSessionControls({
     }));
 
     try {
-      appendDevLog("stratum", "Stopping CPU mining");
       await stopRealMining();
     } catch (error) {
-      appendDevLog("stratum", `Stop CPU mining failed: ${formatError(error)}`);
       if (runningInTauri) {
         setErrorMessage(`Could not stop mining: ${formatError(error)}`);
       }

@@ -54,11 +54,6 @@ export function createStructuredMiningEventState(
   };
 }
 
-export function structuredMiningEventsFromStats(stats: RealMiningStats): StructuredMiningEvent[] {
-  void stats;
-  return [];
-}
-
 export function structuredMiningEventFromRuntimePayload(
   payload: MiningRuntimeEventPayload,
 ): StructuredMiningEvent {

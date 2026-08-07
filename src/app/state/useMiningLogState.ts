@@ -3,7 +3,6 @@ import {
   createDevLogEntry,
   createPetLogEntry,
   latestPetLogMessage,
-  petLogMessageFromMiningEvent,
   type DevLogEntry,
   type PetLogEntry,
 } from "../../domain/miningLogs";
@@ -27,11 +26,8 @@ export function useMiningLogState() {
     setDevLogs((current) => [entry, ...current].slice(0, 80));
   }, []);
 
+  // Attention / dashboard EVENT label only. Pet copy comes from miningRuntimeEffects.
   const emitMiningEvent = useCallback((event: MiningEvent) => {
-    if (event.level === "LOW_LEVEL") {
-      return;
-    }
-
     setLastMiningEvent(event);
     if (
       event.type === "share_accepted" ||
@@ -40,12 +36,7 @@ export function useMiningLogState() {
     ) {
       setAttentionEvent(event);
     }
-
-    const petMessage = petLogMessageFromMiningEvent(event);
-    if (petMessage) {
-      appendPetLog(petMessage);
-    }
-  }, [appendPetLog]);
+  }, []);
 
   return {
     latestLog,

@@ -9,15 +9,9 @@ interface MiningMetricsPanelProps {
   lastShare: string;
 }
 
-const networkMetricLabels = new Set(["NET DIFF", "ETA BLOCK", "POOL DIFF", "SHARES/H"]);
-const sessionMetricLabels = new Set([
-  "BLOCK HEIGHT",
-  "SHARES A / R",
-  "STALE DROPS",
-  "QUEUE DROPS",
-  "APP UPTIME",
-  "MINING UPTIME",
-]);
+function metricsInGroup(metrics: MetricRow[], group: MetricRow["group"]) {
+  return metrics.filter((row) => row.group === group);
+}
 
 function MetricList({
   className,
@@ -34,10 +28,10 @@ function MetricList({
         <p className="label">{title}</p>
       </div>
       <div className="metric-list-grid">
-        {metrics.map(([label, value]) => (
-          <span key={label}>
-            <b>{label}</b>
-            <em title={value}>{value}</em>
+        {metrics.map((row) => (
+          <span key={row.id}>
+            <b>{row.label}</b>
+            <em title={row.value}>{row.value}</em>
           </span>
         ))}
       </div>
@@ -53,18 +47,17 @@ export default function MiningMetricsPanel({
   jobStatus,
   lastShare,
 }: MiningMetricsPanelProps) {
-  const primaryMetrics = metrics.slice(1, 4);
-  const secondaryMetrics = metrics.slice(4);
-  const networkMetrics = secondaryMetrics.filter(([label]) => networkMetricLabels.has(label));
-  const sessionMetrics = secondaryMetrics.filter(([label]) => sessionMetricLabels.has(label));
+  const primaryMetrics = metricsInGroup(metrics, "primary");
+  const networkMetrics = metricsInGroup(metrics, "network");
+  const sessionMetrics = metricsInGroup(metrics, "session");
 
   return (
     <section className="dashboard-metrics-panel" aria-label="Mining metrics">
       <section className="dashboard-primary-metrics" aria-label="Primary mining metrics">
-        {primaryMetrics.map(([label, value]) => (
-          <article key={label}>
-            <p className="label">{label}</p>
-            <strong title={value}>{value}</strong>
+        {primaryMetrics.map((row) => (
+          <article key={row.id}>
+            <p className="label">{row.label}</p>
+            <strong title={row.value}>{row.value}</strong>
           </article>
         ))}
       </section>

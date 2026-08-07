@@ -18,7 +18,42 @@ import {
 import { derivePetCompanionSnapshot, type PetCompanionSnapshot } from "../pets/companion.js";
 import type { PetProfile } from "../pets/profiles.js";
 
-export type MetricRow = [string, string];
+export type MetricId =
+  | "hashrate"
+  | "bestDiff"
+  | "luck"
+  | "streak"
+  | "netDiff"
+  | "etaBlock"
+  | "poolDiff"
+  | "sharesPerHour"
+  | "blockHeight"
+  | "sharesAR"
+  | "staleDrops"
+  | "queueDrops"
+  | "appUptime"
+  | "miningUptime"
+  | "engine"
+  | "pet"
+  | "mood"
+  | "petState"
+  | "bond"
+  | "event"
+  | "petLogs"
+  | "devLogs"
+  | "preset"
+  | "cpuThreads"
+  | "recommended"
+  | "mode";
+
+export type MetricGroup = "summary" | "primary" | "network" | "session" | "system";
+
+export interface MetricRow {
+  id: MetricId;
+  label: string;
+  value: string;
+  group: MetricGroup;
+}
 
 export interface MiningDashboardViewModelInput {
   config: AppConfig;
@@ -74,6 +109,15 @@ function performancePresetLabel(preset: AppConfig["performance_preset"]) {
   }
 }
 
+function metric(
+  id: MetricId,
+  label: string,
+  value: string,
+  group: MetricGroup,
+): MetricRow {
+  return { id, label, value, group };
+}
+
 export function createMiningDashboardViewModel(input: MiningDashboardViewModelInput): MiningDashboardViewModel {
   const activeHashrate = input.realStats.hashrate;
   const displayedHashrate = formatHashrate(input.realStats.hashrate);
@@ -119,37 +163,34 @@ export function createMiningDashboardViewModel(input: MiningDashboardViewModelIn
   const currentModeLabel = "CPU";
 
   const resourceMetrics: MetricRow[] = [
-    ["ENGINE", "CPU"],
-    ["PET", petCompanion.name],
-    ["MOOD", petCompanion.moodLabel],
-    ["PET STATE", input.miningSessionStatus.label],
-    ["BOND", `${petCompanion.care.bond.value}%`],
-    ["EVENT", miningEventLabel(input.lastMiningEvent)],
-    ["PET LOGS", `${input.petLogsCount}`],
-    ["DEV LOGS", `${input.devLogsCount}`],
-    ["PRESET", performancePresetLabel(input.config.performance_preset)],
-    ["CPU THREADS", `${input.effectiveCpuThreads}`],
-    ["RECOMMENDED", `${input.systemInfo.recommended_cpu_threads}`],
-    ["MODE", currentModeLabel],
+    metric("engine", "ENGINE", "CPU", "system"),
+    metric("pet", "PET", petCompanion.name, "system"),
+    metric("mood", "MOOD", petCompanion.moodLabel, "system"),
+    metric("petState", "PET STATE", input.miningSessionStatus.label, "system"),
+    metric("bond", "BOND", `${petCompanion.care.bond.value}%`, "system"),
+    metric("event", "EVENT", miningEventLabel(input.lastMiningEvent), "system"),
+    metric("petLogs", "PET LOGS", `${input.petLogsCount}`, "system"),
+    metric("devLogs", "DEV LOGS", `${input.devLogsCount}`, "system"),
+    metric("preset", "PRESET", performancePresetLabel(input.config.performance_preset), "system"),
+    metric("cpuThreads", "CPU THREADS", `${input.effectiveCpuThreads}`, "system"),
+    metric("recommended", "RECOMMENDED", `${input.systemInfo.recommended_cpu_threads}`, "system"),
+    metric("mode", "MODE", currentModeLabel, "system"),
   ];
   const metrics: MetricRow[] = [
-    ["HASHRATE", displayedHashrate],
-    [
-      "BEST DIFF",
-      formatDifficulty(input.realStats.best_difficulty),
-    ],
-    ["LUCK", `${probabilitySnapshot.luckMeter}%`],
-    ["STREAK", `${probabilitySnapshot.streakCounter}`],
-    ["NET DIFF", currentDifficultyValue],
-    ["ETA BLOCK", formatProbabilityTime(probabilitySnapshot.estimatedTimeToBlockSeconds)],
-    ["POOL DIFF", shareDifficultyValue],
-    ["SHARES/H", shareRateValue],
-    ["BLOCK HEIGHT", input.blockHeight],
-    ["SHARES A / R", `${input.acceptedShares} / ${input.rejectedShares}`],
-    ["STALE DROPS", `${input.realStats.stale_shares_dropped}`],
-    ["QUEUE DROPS", `${input.realStats.queued_shares_dropped}`],
-    ["APP UPTIME", formatUptime(input.appUptime)],
-    ["MINING UPTIME", formatUptime(input.miningUptime)],
+    metric("hashrate", "HASHRATE", displayedHashrate, "summary"),
+    metric("bestDiff", "BEST DIFF", formatDifficulty(input.realStats.best_difficulty), "primary"),
+    metric("luck", "LUCK", `${probabilitySnapshot.luckMeter}%`, "primary"),
+    metric("streak", "STREAK", `${probabilitySnapshot.streakCounter}`, "primary"),
+    metric("netDiff", "NET DIFF", currentDifficultyValue, "network"),
+    metric("etaBlock", "ETA BLOCK", formatProbabilityTime(probabilitySnapshot.estimatedTimeToBlockSeconds), "network"),
+    metric("poolDiff", "POOL DIFF", shareDifficultyValue, "network"),
+    metric("sharesPerHour", "SHARES/H", shareRateValue, "network"),
+    metric("blockHeight", "BLOCK HEIGHT", input.blockHeight, "session"),
+    metric("sharesAR", "SHARES A / R", `${input.acceptedShares} / ${input.rejectedShares}`, "session"),
+    metric("staleDrops", "STALE DROPS", `${input.realStats.stale_shares_dropped}`, "session"),
+    metric("queueDrops", "QUEUE DROPS", `${input.realStats.queued_shares_dropped}`, "session"),
+    metric("appUptime", "APP UPTIME", formatUptime(input.appUptime), "session"),
+    metric("miningUptime", "MINING UPTIME", formatUptime(input.miningUptime), "session"),
   ];
 
   return {

@@ -41,8 +41,8 @@ function validConfig(overrides = {}) {
   };
 }
 
-function metricValue(metrics, label) {
-  return metrics.find(([metricLabel]) => metricLabel === label)?.[1];
+function metricValue(metrics, id) {
+  return metrics.find((row) => row.id === id)?.value;
 }
 
 test("mining dashboard view model keeps idle CPU display values compact", () => {
@@ -76,10 +76,10 @@ test("mining dashboard view model keeps idle CPU display values compact", () => 
   assert.equal(viewModel.displayedHashrate, "0 H/s");
   assert.equal(viewModel.compactRuntimeLabel, "CPU");
   assert.equal(viewModel.modeDescription, "Local CPU mining");
-  assert.equal(metricValue(viewModel.metrics, "SHARES A / R"), "0 / 0");
-  assert.equal(metricValue(viewModel.metrics, "STALE DROPS"), "0");
-  assert.equal(metricValue(viewModel.resourceMetrics, "CPU THREADS"), "1");
-  assert.equal(metricValue(viewModel.resourceMetrics, "EVENT"), "Waiting");
+  assert.equal(metricValue(viewModel.metrics, "sharesAR"), "0 / 0");
+  assert.equal(metricValue(viewModel.metrics, "staleDrops"), "0");
+  assert.equal(metricValue(viewModel.resourceMetrics, "cpuThreads"), "1");
+  assert.equal(metricValue(viewModel.resourceMetrics, "event"), "Waiting");
 });
 
 test("mining dashboard view model exposes CPU real mining resource status", () => {
@@ -132,8 +132,8 @@ test("mining dashboard view model exposes CPU real mining resource status", () =
   assert.equal(viewModel.poolStatus, "public-pool.io:3333");
   assert.equal(viewModel.authStatus, "Authorized");
   assert.equal(viewModel.jobStatus, "job-1");
-  assert.equal(metricValue(viewModel.metrics, "SHARES A / R"), "3 / 1");
-  assert.equal(metricValue(viewModel.metrics, "STALE DROPS"), "2");
-  assert.equal(metricValue(viewModel.resourceMetrics, "CPU THREADS"), "4");
-  assert.equal(metricValue(viewModel.resourceMetrics, "ENGINE"), "CPU");
+  assert.equal(metricValue(viewModel.metrics, "sharesAR"), "3 / 1");
+  assert.equal(metricValue(viewModel.metrics, "staleDrops"), "2");
+  assert.equal(metricValue(viewModel.resourceMetrics, "cpuThreads"), "4");
+  assert.equal(metricValue(viewModel.resourceMetrics, "engine"), "CPU");
 });

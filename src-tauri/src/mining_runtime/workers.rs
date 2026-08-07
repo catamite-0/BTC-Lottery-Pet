@@ -338,4 +338,38 @@ mod tests {
         assert_eq!(queued.share.nonce, 42);
         assert_eq!(queued.event.nonce, "0000002a");
     }
+    #[test]
+    fn best_difficulty_tracker_skips_hashes_below_current_best() {
+        use btc_hash_cpu::DIFF_ONE_TARGET;
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+
+        let shared = SharedMiningState::new(Arc::new(AtomicBool::new(false)));
+        shared.update_best_difficulty(1.0);
+        let mut tracker = BestDifficultyTracker::new(&shared);
+        let weak_hash_words = [0xffff_ffff; 8];
+
+        assert!(!crate::mining_kernel::hash_words_meet_target_words(
+            &weak_hash_words,
+            tracker.target_words(),
+        ));
+        assert_eq!(
+            f64::from_bits(shared.best_difficulty_bits.load(Ordering::Relaxed)),
+            1.0
+        );
+
+        let perfect_hash_words = [0_u32; 8];
+        assert!(crate::mining_kernel::hash_words_meet_target_words(
+            &perfect_hash_words,
+            tracker.target_words(),
+        ));
+        let improved = tracker.record_words_improvement(&shared, &perfect_hash_words);
+        assert_eq!(improved, DIFF_ONE_TARGET);
+        assert_eq!(
+            f64::from_bits(shared.best_difficulty_bits.load(Ordering::Relaxed)),
+            DIFF_ONE_TARGET
+        );
+    }
 }

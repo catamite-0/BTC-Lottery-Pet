@@ -153,4 +153,28 @@ mod tests {
 
         assert_eq!(settings.cpu_threads, 1);
     }
+    #[test]
+    fn validates_mainnet_bitcoin_address_checksum_and_network() {
+        assert!(super::validate_mainnet_address("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa").is_ok());
+        assert!(super::validate_mainnet_address("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNb").is_err());
+        assert!(super::validate_mainnet_address("mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn").is_err());
+    }
+
+    #[test]
+    fn rejects_real_mining_threads_above_local_parallelism() {
+        let available_threads = std::thread::available_parallelism()
+            .map(|count| count.get())
+            .unwrap_or(1);
+        let settings = RealMiningSettings {
+            pool_host: "public-pool.io".into(),
+            pool_port: 3333,
+            pool_password: String::new(),
+            btc_address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into(),
+            worker_name: "btc-lottery-pet".into(),
+            cpu_threads: available_threads + 1,
+            confirmed_cpu_use: true,
+        };
+
+        assert!(settings.validate().is_err());
+    }
 }

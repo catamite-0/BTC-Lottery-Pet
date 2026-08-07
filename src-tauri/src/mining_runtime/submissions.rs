@@ -352,3 +352,232 @@ pub(crate) fn log_expired_pending_submissions(
         ),
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use crate::mining_protocol::ProtocolEvent;
+    use crate::mining_settings::{CandidateSubmissionStatus, FoundBlockEvent};
+    use crate::mining_state::ShareSubmission;
+    use crate::mining_workers::BlockCandidateSubmission;
+
+    use super::{
+        attempt_candidate_submission, drain_share_queue, submission_budget, ConnectionCandidates,
+        CANDIDATE_UNKNOWN_CONNECTION_ENDED, CANDIDATE_UNKNOWN_PREVIOUS_CONNECTION,
+        CANDIDATE_UNKNOWN_RESPONSE_TIMEOUT, MAX_PENDING_SUBMISSIONS,
+        MAX_SHARE_SUBMISSIONS_PER_TICK,
+    };
+
+    fn pending_share(job_id: &str, nonce: u32) -> ShareSubmission {
+        ShareSubmission {
+            generation: 1,
+            job_id: job_id.into(),
+            extranonce2: "00000001".into(),
+            ntime: "5f5e1000".into(),
+            nonce,
+        }
+    }
+
+    fn block_candidate(nonce: u32) -> BlockCandidateSubmission {
+        BlockCandidateSubmission {
+            share: pending_share("job-candidate", nonce),
+            event: FoundBlockEvent {
+                job_id: "job-candidate".into(),
+                nonce: format!("{nonce:08x}"),
+                ntime: "5f5e1000".into(),
+                extranonce2: "00000001".into(),
+                hash: "00".repeat(32),
+                difficulty: 42.0,
+                timestamp: "2026-07-30T00:00:00Z".into(),
+                submission_status: CandidateSubmissionStatus::Unknown,
+                submission_message: None,
+                pool: "pool.example:3333".into(),
+                record_saved: false,
+                record_file: None,
+            },
+        }
+    }
+
+    #[test]
+    fn candidate_pool_responses_finalize_once_with_request_id() {
+        let mut accepted = ConnectionCandidates::default();
+        accepted.track(11, block_candidate(1).event);
+        let event = ProtocolEvent::ShareAccepted {
+            request_id: 11,
+            message: "Pool accepted candidate submission; this is not a network confirmation."
+                .into(),
+        };
+        let finalized = accepted.finish_protocol_event(&event).unwrap();
+        assert_eq!(
+            finalized.submission_status,
+            CandidateSubmissionStatus::Accepted
+        );
+        assert!(finalized
+            .submission_message
+            .as_deref()
+            .unwrap()
+            .contains("not a network confirmation"));
+        assert!(accepted.finish_protocol_event(&event).is_none());
+        assert!(accepted.is_empty());
+
+        let mut rejected = ConnectionCandidates::default();
+        rejected.track(12, block_candidate(2).event);
+        let event = ProtocolEvent::ShareRejected {
+            request_id: 12,
+            message: "Pool rejected candidate submission.".into(),
+        };
+        let finalized = rejected.finish_protocol_event(&event).unwrap();
+        assert_eq!(
+            finalized.submission_status,
+            CandidateSubmissionStatus::Rejected
+        );
+        assert_eq!(
+            finalized.submission_message.as_deref(),
+            Some("Pool rejected candidate submission.")
+        );
+        assert!(rejected.finish_protocol_event(&event).is_none());
+        assert!(rejected.is_empty());
+    }
+
+    #[test]
+    fn written_candidate_stops_backend_and_disconnect_or_timeout_is_unknown_once() {
+        let stop = AtomicBool::new(false);
+        let mut request_id = 10;
+        let mut candidates = ConnectionCandidates::default();
+        let write_observed = std::cell::Cell::new(false);
+
+        let (submitted_id, _) = attempt_candidate_submission(
+            &mut request_id,
+            &mut candidates,
+            block_candidate(3),
+            &stop,
+            |next_request_id, share| {
+                assert_eq!(next_request_id, 11);
+                assert_eq!(share.nonce, 3);
+                assert!(!stop.load(Ordering::Acquire));
+                write_observed.set(true);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert!(write_observed.get());
+        assert!(stop.load(Ordering::Acquire));
+        assert_eq!(submitted_id, 11);
+        assert_eq!(request_id, 11);
+        assert_eq!(candidates.pending_len(), 1);
+        assert!(candidates.pop_queued().is_none());
+
+        let finalized = candidates.drain_unknown(
+            CANDIDATE_UNKNOWN_CONNECTION_ENDED,
+            CANDIDATE_UNKNOWN_PREVIOUS_CONNECTION,
+        );
+        assert_eq!(finalized.len(), 1);
+        assert_eq!(
+            finalized[0].submission_status,
+            CandidateSubmissionStatus::Unknown
+        );
+        assert!(finalized[0]
+            .submission_message
+            .as_deref()
+            .unwrap()
+            .contains("connection ended"));
+        assert!(candidates
+            .drain_unknown("duplicate", "duplicate")
+            .is_empty());
+
+        let mut timed_out = ConnectionCandidates::default();
+        timed_out.track(12, block_candidate(4).event);
+        let finalized = timed_out
+            .finish(
+                12,
+                CandidateSubmissionStatus::Unknown,
+                Some(CANDIDATE_UNKNOWN_RESPONSE_TIMEOUT.into()),
+            )
+            .unwrap();
+        assert_eq!(
+            finalized.submission_status,
+            CandidateSubmissionStatus::Unknown
+        );
+        assert!(timed_out
+            .finish(12, CandidateSubmissionStatus::Unknown, None)
+            .is_none());
+    }
+
+    #[test]
+    fn candidate_write_failure_is_unknown_and_never_requeued() {
+        let stop = AtomicBool::new(false);
+        let mut request_id = 10;
+        let mut candidates = ConnectionCandidates::default();
+
+        let result = attempt_candidate_submission(
+            &mut request_id,
+            &mut candidates,
+            block_candidate(5),
+            &stop,
+            |_, _| Err("scripted partial socket write".into()),
+        );
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("scripted candidate write unexpectedly succeeded"),
+        };
+
+        assert!(error.contains("partial socket write"));
+        assert!(stop.load(Ordering::Acquire));
+        assert_eq!(request_id, 10);
+        assert_eq!(candidates.pending_len(), 1);
+        assert!(candidates.pop_queued().is_none());
+        let finalized = candidates.drain_unknown(
+            CANDIDATE_UNKNOWN_CONNECTION_ENDED,
+            CANDIDATE_UNKNOWN_PREVIOUS_CONNECTION,
+        );
+        assert_eq!(finalized.len(), 1);
+        assert_eq!(
+            finalized[0].submission_status,
+            CandidateSubmissionStatus::Unknown
+        );
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn unattempted_candidate_from_ended_connection_is_unknown_not_replayed() {
+        let mut candidates = ConnectionCandidates::default();
+        candidates.queue(block_candidate(6));
+
+        let finalized = candidates.drain_unknown(
+            CANDIDATE_UNKNOWN_CONNECTION_ENDED,
+            CANDIDATE_UNKNOWN_PREVIOUS_CONNECTION,
+        );
+
+        assert_eq!(finalized.len(), 1);
+        assert_eq!(
+            finalized[0].submission_status,
+            CandidateSubmissionStatus::Unknown
+        );
+        assert_eq!(
+            finalized[0].submission_message.as_deref(),
+            Some(CANDIDATE_UNKNOWN_PREVIOUS_CONNECTION)
+        );
+        assert!(candidates.pop_queued().is_none());
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn drains_queued_shares_before_new_pool_connection() {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(4);
+        sender.try_send(pending_share("old-job", 0)).unwrap();
+        sender.try_send(pending_share("old-job", 1)).unwrap();
+
+        assert_eq!(drain_share_queue(&receiver), 2);
+        assert_eq!(drain_share_queue(&receiver), 0);
+    }
+
+    #[test]
+    fn caps_share_submission_budget() {
+        assert_eq!(submission_budget(0), MAX_SHARE_SUBMISSIONS_PER_TICK);
+        assert_eq!(submission_budget(MAX_PENDING_SUBMISSIONS - 1), 1);
+        assert_eq!(submission_budget(MAX_PENDING_SUBMISSIONS), 0);
+        assert_eq!(submission_budget(MAX_PENDING_SUBMISSIONS + 1), 0);
+    }
+}

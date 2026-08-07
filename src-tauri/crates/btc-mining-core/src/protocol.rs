@@ -1099,3 +1099,454 @@ mod handshake_and_job_policy_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod session_protocol_tests {
+    use std::{
+        io::{BufRead, BufReader, Cursor, ErrorKind, Write},
+        net::{TcpListener, TcpStream},
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            mpsc, Arc,
+        },
+        thread,
+        time::{Duration, Instant},
+    };
+
+    use crate::state::{PendingShareSubmissions, ShareSubmission, SharedMiningState};
+
+    use super::{
+        handle_server_message_with_logger, pool_response_error, validate_share_difficulty,
+        write_message, ProtocolState, StratumLineRead, StratumLineReader, MAX_STRATUM_LINE_BYTES,
+    };
+
+    fn read_mock_line(reader: &mut BufReader<TcpStream>) -> String {
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("mock pool read line");
+        assert!(!line.is_empty(), "mock pool connection closed early");
+        line
+    }
+
+    fn protocol_test_state() -> (
+        ProtocolState,
+        Arc<SharedMiningState>,
+        PendingShareSubmissions,
+        Vec<String>,
+    ) {
+        (
+            ProtocolState::default(),
+            Arc::new(SharedMiningState::new(Arc::new(AtomicBool::new(false)))),
+            PendingShareSubmissions::default(),
+            Vec::new(),
+        )
+    }
+
+    fn pending_share(job_id: &str, nonce: u32) -> ShareSubmission {
+        ShareSubmission {
+            generation: 1,
+            job_id: job_id.into(),
+            extranonce2: "00000001".into(),
+            ntime: "5f5e1000".into(),
+            nonce,
+        }
+    }
+
+    #[test]
+    fn stop_signal_is_observed_during_slow_drip_input() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .unwrap();
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let writer_stop = Arc::clone(&stop);
+        let writer_handle = thread::spawn(move || {
+            while !writer_stop.load(Ordering::Acquire) {
+                if server.write_all(b"a").is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+        });
+
+        let reader_stop = Arc::clone(&stop);
+        let (ready_sender, ready_receiver) = mpsc::channel();
+        let (done_sender, done_receiver) = mpsc::channel();
+        let reader_handle = thread::spawn(move || {
+            let mut line_reader = StratumLineReader::default();
+            ready_sender.send(()).unwrap();
+            while !reader_stop.load(Ordering::Acquire) {
+                match line_reader.read_from(&mut client) {
+                    Ok(StratumLineRead::Pending | StratumLineRead::Line(_)) => {}
+                    Ok(StratumLineRead::Closed) => break,
+                    Err(error)
+                        if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
+                    Err(error) => panic!("unexpected slow-drip read error: {error}"),
+                }
+            }
+            done_sender.send(()).unwrap();
+        });
+
+        ready_receiver.recv().unwrap();
+        thread::sleep(Duration::from_millis(60));
+        let stop_started = Instant::now();
+        stop.store(true, Ordering::Release);
+        done_receiver
+            .recv_timeout(Duration::from_millis(500))
+            .expect("slow-drip reader did not observe the stop signal");
+
+        assert!(stop_started.elapsed() < Duration::from_millis(500));
+        reader_handle.join().unwrap();
+        writer_handle.join().unwrap();
+    }
+
+    #[test]
+    fn rejects_oversized_stratum_line_during_read() {
+        let bytes = vec![b'a'; MAX_STRATUM_LINE_BYTES + 1];
+        let mut reader = Cursor::new(bytes);
+        let mut line_reader = StratumLineReader::default();
+        let error = loop {
+            match line_reader.read_from(&mut reader) {
+                Ok(StratumLineRead::Pending) => {}
+                Err(error) => break error,
+                other => panic!("unexpected oversized read result: {other:?}"),
+            }
+        };
+
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn surfaces_pool_rejection_reason_from_result_text() {
+        let message = serde_json::json!({
+            "id": 1,
+            "result": "Only allowed user agents may subscribe",
+            "error": null
+        });
+
+        assert_eq!(
+            pool_response_error(&message).as_deref(),
+            Some("Only allowed user agents may subscribe")
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_stratum_json() {
+        let (mut protocol, shared, mut pending_submissions, mut logs) = protocol_test_state();
+        let error = handle_server_message_with_logger(
+            "{not-json",
+            &mut protocol,
+            &shared,
+            &mut pending_submissions,
+            |message| logs.push(message.to_owned()),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("invalid Stratum JSON"));
+        assert!(logs.is_empty());
+    }
+
+    #[test]
+    fn rejects_notify_with_invalid_hex_before_worker_dispatch() {
+        let (mut protocol, shared, mut pending_submissions, mut logs) = protocol_test_state();
+        protocol.extranonce1 = Some("abcd".into());
+        protocol.extranonce2_size = Some(4);
+        protocol.difficulty = 0.001;
+
+        let error = handle_server_message_with_logger(
+            r#"{"method":"mining.notify","params":["job-bad","zz","00","00",[],"20000000","1d00ffff","5f5e1000",true]}"#,
+            &mut protocol,
+            &shared,
+            &mut pending_submissions,
+            |message| logs.push(message.to_owned()),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("previous hash"));
+        assert!(shared.job.read().unwrap().is_none());
+        assert!(logs.is_empty());
+    }
+
+    #[test]
+    fn surfaces_subscribe_rejection_reason() {
+        let (mut protocol, shared, mut pending_submissions, mut logs) = protocol_test_state();
+        let error = handle_server_message_with_logger(
+            r#"{"id":1,"result":null,"error":["subscription disabled",20,null]}"#,
+            &mut protocol,
+            &shared,
+            &mut pending_submissions,
+            |message| logs.push(message.to_owned()),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("pool rejected mining.subscribe"));
+        assert!(error.contains("subscription disabled"));
+        assert!(protocol.extranonce1.is_none());
+    }
+
+    #[test]
+    fn surfaces_authorize_rejection_reason() {
+        let (mut protocol, shared, mut pending_submissions, mut logs) = protocol_test_state();
+        let error = handle_server_message_with_logger(
+            r#"{"id":2,"result":false,"error":["bad user",24,null]}"#,
+            &mut protocol,
+            &shared,
+            &mut pending_submissions,
+            |message| logs.push(message.to_owned()),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("pool rejected mining.authorize"));
+        assert!(error.contains("bad user"));
+        assert_eq!(
+            shared.connection_status.lock().unwrap().as_str(),
+            "Starting"
+        );
+    }
+
+    #[test]
+    fn ignores_unknown_response_ids_without_share_accounting() {
+        let (mut protocol, shared, mut pending_submissions, mut logs) = protocol_test_state();
+        pending_submissions.insert(99, pending_share("job-unknown", 0), Instant::now());
+
+        handle_server_message_with_logger(
+            r#"{"id":42,"result":true,"error":null}"#,
+            &mut protocol,
+            &shared,
+            &mut pending_submissions,
+            |message| logs.push(message.to_owned()),
+        )
+        .unwrap();
+
+        assert_eq!(shared.accepted_shares.load(Ordering::Relaxed), 0);
+        assert_eq!(shared.rejected_shares.load(Ordering::Relaxed), 0);
+        assert!(pending_submissions.contains_id(99));
+        assert!(logs.is_empty());
+    }
+
+    #[test]
+    fn mock_stratum_pool_drives_handshake_job_and_share_accounting() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+
+            let subscribe = read_mock_line(&mut reader);
+            assert!(subscribe.contains("\"mining.subscribe\""));
+            write_message(
+                &mut stream,
+                &serde_json::json!({
+                    "id": 1,
+                    "result": [null, "abcd", 4],
+                    "error": null
+                }),
+            )
+            .unwrap();
+
+            let authorize = read_mock_line(&mut reader);
+            assert!(authorize.contains("\"mining.authorize\""));
+            write_message(
+                &mut stream,
+                &serde_json::json!({
+                    "id": 2,
+                    "result": true,
+                    "error": null
+                }),
+            )
+            .unwrap();
+            write_message(
+                &mut stream,
+                &serde_json::json!({
+                    "method": "mining.set_difficulty",
+                    "params": [0.001]
+                }),
+            )
+            .unwrap();
+            write_message(
+                &mut stream,
+                &serde_json::json!({
+                    "method": "mining.notify",
+                    "params": [
+                        "job-1",
+                        "0000000000000000000000000000000000000000000000000000000000000000",
+                        "00",
+                        "00",
+                        [],
+                        "20000000",
+                        "1d00ffff",
+                        "5f5e1000",
+                        true
+                    ]
+                }),
+            )
+            .unwrap();
+
+            let submit = read_mock_line(&mut reader);
+            assert!(submit.contains("\"mining.submit\""));
+            write_message(
+                &mut stream,
+                &serde_json::json!({
+                    "id": 11,
+                    "result": true,
+                    "error": null
+                }),
+            )
+            .unwrap();
+
+            let rejected_submit = read_mock_line(&mut reader);
+            assert!(rejected_submit.contains("\"mining.submit\""));
+            write_message(
+                &mut stream,
+                &serde_json::json!({
+                    "id": 12,
+                    "result": false,
+                    "error": ["low difficulty share", 23, null]
+                }),
+            )
+            .unwrap();
+        });
+
+        let mut stream = TcpStream::connect(address).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let stop = Arc::new(AtomicBool::new(false));
+        let shared = Arc::new(SharedMiningState::new(stop));
+        let mut protocol = ProtocolState {
+            difficulty: 0.001,
+            ..ProtocolState::default()
+        };
+        let mut pending_submissions = PendingShareSubmissions::default();
+        let mut logs = Vec::new();
+
+        write_message(
+            &mut stream,
+            &serde_json::json!({
+                "id": 1,
+                "method": "mining.subscribe",
+                "params": ["BTC Lottery Pet/test"]
+            }),
+        )
+        .unwrap();
+        write_message(
+            &mut stream,
+            &serde_json::json!({
+                "id": 2,
+                "method": "mining.authorize",
+                "params": ["1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa.worker", "x"]
+            }),
+        )
+        .unwrap();
+
+        for _ in 0..4 {
+            let line = read_mock_line(&mut reader);
+            handle_server_message_with_logger(
+                line.trim(),
+                &mut protocol,
+                &shared,
+                &mut pending_submissions,
+                |message| logs.push(message.to_owned()),
+            )
+            .unwrap();
+        }
+
+        assert_eq!(
+            shared
+                .job
+                .read()
+                .unwrap()
+                .as_ref()
+                .map(|job| job.job_id.as_str()),
+            Some("job-1")
+        );
+        assert_eq!(shared.connection_status.lock().unwrap().as_str(), "Mining");
+
+        pending_submissions.insert(11, pending_share("job-1", 0), Instant::now());
+        write_message(
+            &mut stream,
+            &serde_json::json!({
+                "id": 11,
+                "method": "mining.submit",
+                "params": [
+                    "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa.worker",
+                    "job-1",
+                    "00000001",
+                    "5f5e1000",
+                    "00000000"
+                ]
+            }),
+        )
+        .unwrap();
+        let line = read_mock_line(&mut reader);
+        handle_server_message_with_logger(
+            line.trim(),
+            &mut protocol,
+            &shared,
+            &mut pending_submissions,
+            |message| logs.push(message.to_owned()),
+        )
+        .unwrap();
+
+        assert_eq!(shared.accepted_shares.load(Ordering::Relaxed), 1);
+        assert_eq!(shared.rejected_shares.load(Ordering::Relaxed), 0);
+        assert!(logs
+            .iter()
+            .any(|line| line.contains("Share accepted: job_id=job-1")));
+
+        pending_submissions.insert(12, pending_share("job-1", 1), Instant::now());
+        write_message(
+            &mut stream,
+            &serde_json::json!({
+                "id": 12,
+                "method": "mining.submit",
+                "params": [
+                    "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa.worker",
+                    "job-1",
+                    "00000002",
+                    "5f5e1000",
+                    "00000001"
+                ]
+            }),
+        )
+        .unwrap();
+        let line = read_mock_line(&mut reader);
+        handle_server_message_with_logger(
+            line.trim(),
+            &mut protocol,
+            &shared,
+            &mut pending_submissions,
+            |message| logs.push(message.to_owned()),
+        )
+        .unwrap();
+
+        assert_eq!(shared.accepted_shares.load(Ordering::Relaxed), 1);
+        assert_eq!(shared.rejected_shares.load(Ordering::Relaxed), 1);
+        assert!(logs
+            .iter()
+            .any(|line| line.contains("low difficulty share")));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn rejects_pathological_share_difficulty() {
+        assert!(validate_share_difficulty(0.0001).is_ok());
+        assert!(validate_share_difficulty(0.000099).is_err());
+        assert!(validate_share_difficulty(1e-9).is_err());
+        assert!(validate_share_difficulty(0.0).is_err());
+        assert!(validate_share_difficulty(f64::EPSILON).is_err());
+        assert!(validate_share_difficulty(f64::INFINITY).is_err());
+    }
+}

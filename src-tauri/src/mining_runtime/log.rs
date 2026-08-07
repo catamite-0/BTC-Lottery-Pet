@@ -65,3 +65,15 @@ fn log_message_with_session(app: &AppHandle, session_id: Option<u64>, message: &
 pub(crate) fn should_rotate_log(current_bytes: u64, incoming_bytes: usize) -> bool {
     current_bytes.saturating_add(incoming_bytes as u64) > MAX_LOG_FILE_BYTES
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{should_rotate_log, MAX_LOG_FILE_BYTES};
+
+    #[test]
+    fn rotates_log_before_exceeding_size_cap() {
+        assert!(!should_rotate_log(0, 1));
+        assert!(!should_rotate_log(MAX_LOG_FILE_BYTES - 1, 1));
+        assert!(should_rotate_log(MAX_LOG_FILE_BYTES, 1));
+    }
+}

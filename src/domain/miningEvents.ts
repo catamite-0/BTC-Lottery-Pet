@@ -1,18 +1,9 @@
 import type { BlockFoundEvent } from "../contracts/mining";
 
-export type MiningEventLevel = "LOW_LEVEL" | "MID_LEVEL" | "HIGH_LEVEL";
+export type MiningEventLevel = "MID_LEVEL" | "HIGH_LEVEL";
 export type MiningEventSource = "cpu" | "ui";
 
 export type MiningEvent =
-  | {
-      level: "LOW_LEVEL";
-      type: "hash_attempt";
-      source: MiningEventSource;
-      timestamp: string;
-      payload: {
-        count: number;
-      };
-    }
   | {
       level: "MID_LEVEL";
       type: "share_accepted" | "share_rejected";
@@ -39,16 +30,6 @@ export type MiningEvent =
         block: BlockFoundEvent;
       };
     };
-
-export function createHashAttemptEvent(source: MiningEventSource, count = 1): MiningEvent {
-  return {
-    level: "LOW_LEVEL",
-    type: "hash_attempt",
-    source,
-    timestamp: new Date().toISOString(),
-    payload: { count },
-  };
-}
 
 export function createShareEvent(
   type: "share_accepted" | "share_rejected",

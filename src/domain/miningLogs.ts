@@ -1,5 +1,3 @@
-import type { MiningEvent } from "./miningEvents";
-
 export type DevLogSource = "system" | "stratum" | "cpu";
 
 export interface DevLogEntry {
@@ -34,21 +32,6 @@ export function createPetLogEntry(message: string): PetLogEntry {
     timestamp: new Date().toISOString(),
     message,
   };
-}
-
-export function petLogMessageFromMiningEvent(event: MiningEvent) {
-  switch (event.type) {
-    case "hash_attempt":
-      return null;
-    case "share_accepted":
-      return "I feel lucky...";
-    case "share_rejected":
-      return "That pattern slipped away.";
-    case "block_candidate":
-      return "Something is happening...";
-    case "jackpot":
-      return "I found a strange pattern...";
-  }
 }
 
 export function latestPetLogMessage(entry: PetLogEntry | null) {

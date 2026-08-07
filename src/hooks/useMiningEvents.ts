@@ -11,18 +11,8 @@ import {
   notifyJackpot,
   notifyShareAccepted,
 } from "../platform/tauri/notificationClient";
-import {
-  createBlockCandidateEvent,
-  createJackpotEvent,
-  createShareEvent,
-  type MiningEvent,
-} from "../domain/miningEvents";
-import {
-  cleanMiningLogMessage,
-  createStructuredMiningEventState,
-  reduceStructuredMiningEvents,
-  structuredMiningEventFromRuntimePayload,
-} from "../domain/structuredMiningEvents";
+import type { MiningEvent } from "../domain/miningEvents";
+import { effectsFromRuntimePayload } from "../domain/miningRuntimeEffects";
 import {
   startJackpotSequence,
   type JackpotSequenceSnapshot,
@@ -180,25 +170,69 @@ export function useMiningEvents({
         return;
       }
 
-      if (payload.type === "block_candidate") {
-        const block = payload.block;
-        const wasMining = isMiningRef.current;
-        const structuredState = reduceStructuredMiningEvents(
-          createStructuredMiningEventState(realStatsRef.current),
-          [structuredMiningEventFromRuntimePayload(payload)],
-        );
-        emitMiningEvent(createBlockCandidateEvent("cpu", block));
-        emitMiningEvent(createJackpotEvent(block));
-        appendDevLog("stratum", `Block candidate found: job=${block.job_id}, hash=${block.hash}`);
+      const wasMining = isMiningRef.current;
+      const effects = effectsFromRuntimePayload(payload, {
+        wasMining,
+        stats: realStatsRef.current,
+      });
+
+      if (payload.type !== "block_candidate" && !wasMining) {
+        return;
+      }
+
+      for (const message of effects.petLogMessages) {
+        appendPetLog(message);
+      }
+
+      for (const uiEvent of effects.uiEvents) {
+        emitMiningEvent(uiEvent);
+      }
+
+      if (effects.lastShare) {
+        setLastShare(effects.lastShare);
+      }
+
+      if (
+        effects.connectionStatus !== realStatsRef.current.connection_status ||
+        effects.currentJobId !== realStatsRef.current.current_job_id
+      ) {
+        setRealStats((current) => ({
+          ...current,
+          current_job_id: effects.currentJobId ?? current.current_job_id,
+          connection_status: effects.connectionStatus ?? current.connection_status,
+        }));
+      }
+
+      if (effects.devLogMessage) {
+        appendDevLog("stratum", effects.devLogMessage);
+      }
+
+      if (effects.notifyShareAccepted) {
+        void notifyShareAccepted(notificationSettingsFromConfig(configRef.current)).catch(() => {});
+      }
+
+      if (effects.connectionErrorMessage) {
+        const now = Date.now();
+        if (now - lastConnectionNotificationRef.current > 60_000) {
+          lastConnectionNotificationRef.current = now;
+          void notifyConnectionError(
+            notificationSettingsFromConfig(configRef.current),
+            effects.connectionErrorMessage,
+          ).catch(() => {});
+        }
+      }
+
+      if (payload.type === "block_candidate" && effects.blockCandidate) {
+        const block = effects.blockCandidate;
         setJackpotSequence(startJackpotSequence(block, wasMining));
 
-        if (wasMining && structuredState.jackpotPauseRequested) {
+        if (effects.jackpotPauseRequested) {
           isMiningRef.current = false;
           setIsMining(false);
           setRealStats((current) => ({
             ...current,
             hashrate: 0,
-            connection_status: structuredState.connectionStatus ?? "Jackpot pause",
+            connection_status: effects.connectionStatus ?? "Jackpot pause",
           }));
           setMiningControlPending(true);
           void stopRealMining()
@@ -211,63 +245,14 @@ export function useMiningEvents({
             });
         }
 
-        void notifyJackpot(notificationSettingsFromConfig(configRef.current), {
-          pool: block.pool,
-          jobId: block.job_id,
-          hash: block.hash,
-          difficulty: block.difficulty,
-          timestamp: block.timestamp,
-        }).catch(() => {});
-        return;
-      }
-
-      if (!isMiningRef.current) {
-        return;
-      }
-
-      const cleanMessage = "message" in payload
-        ? cleanMiningLogMessage(payload.message)
-        : "";
-      const structuredState = reduceStructuredMiningEvents(
-        createStructuredMiningEventState(realStatsRef.current),
-        [structuredMiningEventFromRuntimePayload(payload)],
-      );
-
-      if (structuredState.petLogMessage) {
-        appendPetLog(structuredState.petLogMessage);
-      }
-
-      if (structuredState.lastShare) {
-        setLastShare(structuredState.lastShare);
-      }
-
-      if (
-        structuredState.connectionStatus !== realStatsRef.current.connection_status ||
-        structuredState.currentJobId !== realStatsRef.current.current_job_id
-      ) {
-        setRealStats((current) => ({
-          ...current,
-          current_job_id: structuredState.currentJobId ?? current.current_job_id,
-          connection_status: structuredState.connectionStatus ?? current.connection_status,
-        }));
-      }
-
-      if (structuredState.shareEventType) {
-        emitMiningEvent(createShareEvent(structuredState.shareEventType, "cpu", cleanMessage));
-      }
-
-      if (structuredState.shareEventType === "share_accepted") {
-        void notifyShareAccepted(notificationSettingsFromConfig(configRef.current)).catch(() => {});
-      }
-
-      if (structuredState.connectionErrorStatus) {
-        const now = Date.now();
-        if (now - lastConnectionNotificationRef.current > 60_000) {
-          lastConnectionNotificationRef.current = now;
-          void notifyConnectionError(
-            notificationSettingsFromConfig(configRef.current),
-            structuredState.connectionErrorStatus,
-          ).catch(() => {});
+        if (effects.notifyJackpot) {
+          void notifyJackpot(notificationSettingsFromConfig(configRef.current), {
+            pool: block.pool,
+            jobId: block.job_id,
+            hash: block.hash,
+            difficulty: block.difficulty,
+            timestamp: block.timestamp,
+          }).catch(() => {});
         }
       }
     })

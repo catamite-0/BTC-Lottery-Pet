@@ -1,0 +1,625 @@
+/* Settings pet previews should read as the same pets as the main stage. */
+.pet-settings-showcase {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.026);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(188px, 0.92fr) minmax(0, 1fr);
+  margin-top: 10px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.pet-settings-showcase .pet-display-stack {
+  gap: 8px;
+  justify-items: center;
+  min-width: 0;
+  width: 100%;
+}
+
+.pet-settings-showcase .pet-machine-container {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  max-width: 100%;
+  overflow: visible;
+  width: min(100%, 244px);
+}
+
+.pet-settings-showcase .pet-machine {
+  height: 164px;
+  max-width: 100%;
+  padding: 7px;
+  width: 204px;
+}
+
+.pet-settings-showcase .pet-shape-cyber-console .pet-machine {
+  width: 216px;
+}
+
+.pet-settings-showcase .pet-shape-fortune-arcade .pet-machine {
+  width: 196px;
+}
+
+.pet-settings-showcase .pet-companion-panel {
+  display: grid;
+  gap: 6px;
+  width: min(100%, 244px);
+}
+
+.pet-settings-showcase .pet-care-meters {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.pet-settings-showcase .pet-profile-summary {
+  align-self: stretch;
+  margin-top: 0;
+}
+
+.pet-profile-picker {
+  grid-template-columns: repeat(auto-fit, minmax(218px, 1fr));
+  margin-top: 10px;
+}
+
+.pet-profile-option {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 112px minmax(0, 1fr);
+  min-height: 124px;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.pet-profile-option.selected {
+  background: rgba(242, 162, 58, 0.075);
+}
+
+.pet-profile-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pet-profile-preview-shell {
+  display: grid;
+  min-height: 104px;
+  min-width: 0;
+  overflow: visible;
+  place-items: center;
+  pointer-events: none;
+  width: 112px;
+}
+
+.pet-profile-preview-shell .pet-display-stack {
+  gap: 0;
+  justify-items: center;
+  width: 112px;
+}
+
+.pet-profile-preview-shell .pet-machine-container {
+  display: grid;
+  height: auto;
+  justify-items: center;
+  overflow: visible;
+  width: 112px;
+}
+
+.pet-profile-preview-shell .pet-machine {
+  height: 82px;
+  max-width: none;
+  overflow: visible;
+  padding: 5px;
+  width: 96px;
+}
+
+.pet-profile-preview-shell .pet-shape-cyber-console .pet-machine {
+  width: 88px;
+}
+
+.pet-profile-preview-shell .pet-shape-fortune-arcade .pet-machine {
+  width: 94px;
+}
+
+.pet-profile-preview-shell .pet-silhouette-wide-cabinet .pet-machine {
+  width: 102px;
+}
+
+.pet-profile-preview-shell .pet-silhouette-tall-console .pet-machine {
+  height: 94px;
+  width: 82px;
+}
+
+.pet-profile-preview-shell .pet-silhouette-round-arcade .pet-machine {
+  height: 88px;
+  width: 94px;
+}
+
+.pet-profile-preview-shell .pet-silhouette-wide-cabinet .pet-machine::before,
+.pet-profile-preview-shell .pet-silhouette-round-arcade .pet-machine::before {
+  transform: scale(0.72);
+  transform-origin: top center;
+}
+
+.pet-profile-preview-shell .pet-marquee {
+  font-size: 6px;
+  min-height: 10px;
+  padding: 1px 4px;
+}
+
+.pet-profile-preview-shell .pet-lights {
+  margin-bottom: 3px;
+  padding: 0 10px;
+}
+
+.pet-profile-preview-shell .light {
+  height: 4px;
+  width: 4px;
+}
+
+.pet-profile-preview-shell .pet-screen {
+  border-radius: 5px;
+  padding: 4px;
+}
+
+.pet-profile-preview-shell .pet-expression {
+  font-size: 9px;
+  min-height: 12px;
+}
+
+.pet-profile-preview-shell .pet-slots {
+  gap: 3px;
+  margin-top: 3px;
+}
+
+.pet-profile-preview-shell .slot-reel {
+  border-radius: 3px;
+  font-size: 8px;
+  height: 17px;
+}
+
+.pet-profile-preview-shell .reel-strip span {
+  height: 17px;
+}
+
+.pet-profile-preview-shell .pet-status-plate {
+  font-size: 5px;
+  margin-top: 3px;
+}
+
+.pet-profile-preview-shell .pet-identity-strip {
+  font-size: 5px;
+  margin-top: 2px;
+}
+
+.pet-profile-preview-shell .pet-panel-decor {
+  gap: 3px;
+  margin-top: 3px;
+}
+
+.pet-profile-preview-shell .decor-btn {
+  height: 3px;
+  width: 3px;
+}
+
+.pet-profile-preview-shell .pet-ornament-lever {
+  height: 18px;
+  right: -6px;
+}
+
+.pet-profile-preview-shell .pet-ornament-lever::before {
+  height: 8px;
+  left: -2px;
+  top: -7px;
+  width: 8px;
+}
+
+.pet-profile-preview-shell .pet-ornament-antenna {
+  height: 13px;
+  top: -10px;
+  width: 3px;
+}
+
+.pet-profile-preview-shell .pet-ornament-antenna::before {
+  height: 8px;
+  left: -2.5px;
+  top: -6px;
+  width: 8px;
+}
+
+.pet-profile-preview-shell .pet-ornament-coin {
+  height: 13px;
+  right: 8px;
+  top: -6px;
+  width: 13px;
+}
+
+.pet-profile-preview-shell .pet-mark-coin-slot {
+  right: 14px;
+  top: 20px;
+  width: 18px;
+}
+
+.pet-profile-preview-shell .pet-mark-bell-arch {
+  height: 22px;
+  left: 14px;
+  right: 14px;
+  top: 7px;
+}
+
+.pet-profile-preview-shell .pet-mark-coin-tray {
+  left: 24px;
+  right: 24px;
+}
+
+.pet-profile-preview-shell .pet-feet {
+  bottom: -5px;
+}
+
+.pet-profile-preview-shell .pet-feet span {
+  height: 6px;
+  width: 16px;
+}
+
+.pet-profile-preview-shell .mini-stats-line,
+.pet-profile-preview-shell .pet-companion-panel {
+  display: none;
+}
+
+.pet-option-preview {
+  display: grid;
+  height: 70px;
+  justify-items: center;
+  min-width: 0;
+  overflow: visible;
+  place-items: center;
+  width: 78px;
+}
+
+.pet-option-preview .pet-machine {
+  animation: none !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 22%),
+    linear-gradient(135deg, var(--pet-cabinet), var(--pet-cabinet-dark));
+  border-color: var(--pet-primary);
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.26),
+    0 0 0 1px rgba(255, 255, 255, 0.025) inset;
+  display: flex;
+  flex-direction: column;
+  height: 56px;
+  overflow: visible;
+  padding: 4px;
+  transform: none !important;
+  width: 64px;
+}
+
+.pet-option-preview .pet-machine::before {
+  display: none;
+}
+
+.pet-option-preview.pet-silhouette-wide-cabinet .pet-machine {
+  border-radius: 8px 8px 6px 6px;
+  height: 54px;
+  width: 68px;
+}
+
+.pet-option-preview.pet-silhouette-tall-console .pet-machine {
+  border-radius: 8px 8px 13px 13px;
+  clip-path: polygon(8% 0, 92% 0, 100% 80%, 86% 100%, 14% 100%, 0 80%);
+  height: 66px;
+  width: 54px;
+}
+
+.pet-option-preview.pet-silhouette-round-arcade .pet-machine {
+  border-radius: 18px 18px 8px 8px;
+  height: 60px;
+  width: 62px;
+}
+
+.pet-option-marquee {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 4px;
+  color: var(--pet-secondary);
+  display: flex;
+  font: 700 6px "Cascadia Mono", Consolas, monospace;
+  gap: 3px;
+  justify-content: space-between;
+  line-height: 1;
+  margin-bottom: 3px;
+  min-height: 9px;
+  min-width: 0;
+  padding: 1px 3px;
+  text-transform: uppercase;
+}
+
+.pet-option-marquee span,
+.pet-option-marquee b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pet-option-marquee b {
+  color: var(--pet-accent);
+  flex: 0 0 auto;
+  font-size: 5px;
+}
+
+.pet-option-lights {
+  align-items: center;
+  display: flex;
+  justify-content: space-around;
+  margin: 0 0 3px;
+  padding: 0 8px;
+}
+
+.pet-option-lights i {
+  background: var(--pet-secondary);
+  border-radius: 50%;
+  box-shadow: 0 0 5px var(--pet-secondary-glow);
+  display: block;
+  height: 4px;
+  opacity: 0.78;
+  width: 4px;
+}
+
+.pet-option-screen {
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 4px),
+    var(--pet-screen);
+  border-color: var(--pet-screen-glow);
+  border-radius: 4px;
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-height: 0;
+  padding: 3px;
+}
+
+.pet-screen-visor .pet-option-screen {
+  border-radius: 999px 999px 5px 5px;
+}
+
+.pet-screen-arched .pet-option-screen {
+  border-radius: 12px 12px 5px 5px;
+}
+
+.pet-option-expression {
+  color: var(--pet-screen-glow);
+  display: block;
+  font: 700 7px "Cascadia Mono", Consolas, monospace;
+  line-height: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-shadow: 0 0 4px var(--pet-screen-glow-soft);
+  white-space: nowrap;
+}
+
+.pet-option-reels {
+  display: grid;
+  gap: 2px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.pet-option-reel {
+  align-items: center;
+  background: #050608;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  color: var(--pet-reel);
+  display: flex;
+  font: 800 7px "Cascadia Mono", Consolas, monospace;
+  height: 12px;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pet-option-status {
+  color: var(--pet-secondary);
+  display: block;
+  font-size: 5px;
+  margin-top: 3px;
+}
+
+@media (max-width: 560px) {
+  .pet-settings-showcase {
+    grid-template-columns: 1fr;
+  }
+
+  .pet-settings-showcase .pet-care-meters {
+    grid-template-columns: 1fr;
+  }
+
+  .pet-profile-picker {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Settings lives inside pet-shell, so isolate its pet previews from shell mode sizing. */
+.pet-shell .settings-panel .pet-settings-showcase .pet-display-stack {
+  gap: 8px;
+  justify-items: center;
+  width: 100%;
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-machine-container {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  width: min(100%, 244px);
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-machine {
+  height: 164px;
+  max-width: 100%;
+  padding: 7px;
+  width: 204px;
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-shape-cyber-console .pet-machine {
+  width: 216px;
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-shape-fortune-arcade .pet-machine {
+  width: 196px;
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-silhouette-wide-cabinet .pet-machine {
+  width: 204px;
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-silhouette-tall-console .pet-machine {
+  height: 164px;
+  width: 176px;
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-silhouette-round-arcade .pet-machine {
+  height: 164px;
+  width: 188px;
+}
+
+.pet-shell .settings-panel .pet-settings-showcase .pet-companion-panel {
+  display: grid;
+  gap: 6px;
+  width: min(100%, 244px);
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-display-stack {
+  gap: 0;
+  width: 112px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-machine-container {
+  display: grid;
+  justify-items: center;
+  width: 112px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-machine {
+  height: 82px;
+  max-width: none;
+  padding: 5px;
+  width: 96px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-shape-cyber-console .pet-machine {
+  width: 88px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-shape-fortune-arcade .pet-machine {
+  width: 94px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-silhouette-wide-cabinet .pet-machine {
+  height: 82px;
+  width: 102px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-silhouette-tall-console .pet-machine {
+  height: 94px;
+  width: 82px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-silhouette-round-arcade .pet-machine {
+  height: 88px;
+  width: 94px;
+}
+
+.pet-shell .settings-panel .pet-profile-preview-shell .pet-companion-panel,
+.pet-shell .settings-panel .pet-profile-preview-shell .mini-stats-line {
+  display: none;
+}
+
+/* Dashboard pet stage uses the same pet, but needs dashboard-scale internals. */
+.dashboard-pet-panel .pet-marquee {
+  font-size: 10px;
+  min-height: 17px;
+  padding: 0 7px;
+}
+
+.dashboard-pet-panel .pet-lights {
+  margin-bottom: 7px;
+  padding: 0 18px;
+}
+
+.dashboard-pet-panel .light {
+  height: 7px;
+  width: 7px;
+}
+
+.dashboard-pet-panel .pet-screen {
+  border-radius: 9px;
+  padding: 9px;
+}
+
+.dashboard-pet-panel .pet-expression {
+  font-size: 23px;
+  min-height: 32px;
+}
+
+.dashboard-pet-panel .pet-slots {
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.dashboard-pet-panel .slot-reel {
+  border-radius: 6px;
+  font-size: 18px;
+  height: 42px;
+}
+
+.dashboard-pet-panel .reel-strip span {
+  height: 42px;
+}
+
+.dashboard-pet-panel .pet-status-plate {
+  font-size: 9px;
+  margin-top: 7px;
+}
+
+.dashboard-pet-panel .pet-identity-strip {
+  font-size: 8px;
+  margin-top: 5px;
+}
+
+.dashboard-pet-panel .pet-panel-decor {
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.dashboard-pet-panel .decor-btn {
+  height: 6px;
+  width: 6px;
+}
+
+.dashboard-pet-panel .pet-mark-coin-slot {
+  height: 4px;
+  right: 20px;
+  top: 32px;
+  width: 30px;
+}
+
+.dashboard-pet-panel .pet-mark-heat-vents {
+  height: 7px;
+}
+
+.dashboard-pet-panel .pet-mark-bell-arch {
+  height: 38px;
+  left: 24px;
+  right: 24px;
+}
+
+.dashboard-pet-panel .pet-mark-coin-tray {
+  left: 48px;
+  right: 48px;
+}

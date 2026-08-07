@@ -1,0 +1,582 @@
+/* Arcade UI refresh */
+.pet-shell {
+  background:
+    linear-gradient(160deg, rgba(247, 147, 26, 0.12), transparent 26%),
+    linear-gradient(25deg, rgba(41, 182, 246, 0.10), transparent 34%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 7px),
+    #10131a;
+  color: #f7f0df;
+  gap: 8px;
+}
+
+.pet-shell.lucky {
+  background:
+    linear-gradient(150deg, rgba(255, 211, 90, 0.18), transparent 28%),
+    linear-gradient(30deg, rgba(255, 95, 183, 0.14), transparent 36%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 7px),
+    #171017;
+}
+
+.topbar {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 7px;
+}
+
+h1 {
+  font-size: 17px;
+  letter-spacing: 0.02em;
+}
+
+.pin-button,
+.mode-button,
+.mini-button,
+.settings-button {
+  text-transform: uppercase;
+}
+
+.pin-button,
+.mode-button {
+  background: #1b202a;
+  border-color: #3b4658;
+  border-radius: 6px;
+}
+
+.pin-button.active,
+.mode-button.armed {
+  background: rgba(247, 147, 26, 0.12);
+  box-shadow: inset 0 0 10px rgba(247, 147, 26, 0.08);
+}
+
+.pet-machine-container {
+  --pet-cabinet: #313643;
+  --pet-cabinet-dark: #171a22;
+  --pet-primary: #f7931a;
+  --pet-secondary: #ffd35a;
+  --pet-screen: #07120f;
+  --pet-screen-glow: #00ff66;
+  --pet-reel: #f7931a;
+  --pet-accent: #29b6f6;
+  --pet-error: #ff4a4a;
+}
+
+.pet-machine {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%),
+    linear-gradient(135deg, var(--pet-cabinet), var(--pet-cabinet-dark));
+  border-color: var(--pet-primary);
+  border-radius: 8px;
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  padding: 4px;
+}
+
+.pet-marquee {
+  align-items: center;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.42), rgba(255, 255, 255, 0.06));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  color: var(--pet-secondary);
+  display: flex;
+  font: 800 6px "Cascadia Mono", Consolas, monospace;
+  justify-content: center;
+  letter-spacing: 0.08em;
+  margin-bottom: 2px;
+  min-height: 8px;
+  overflow: hidden;
+  text-transform: uppercase;
+}
+
+.pet-screen {
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 4px),
+    var(--pet-screen);
+  border-color: var(--pet-screen-glow);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.62);
+}
+
+.pet-expression {
+  color: var(--pet-screen-glow);
+  text-shadow: 0 0 5px var(--pet-screen-glow-soft);
+}
+
+.slot-reel {
+  background: #050608;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--pet-reel);
+}
+
+.reel-strip span {
+  color: var(--pet-reel);
+  text-shadow: 0 0 4px var(--pet-reel-glow);
+}
+
+.pet-status-plate {
+  color: var(--pet-secondary);
+  font: 800 5px "Cascadia Mono", Consolas, monospace;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  margin-top: 2px;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.decor-btn-red {
+  background: var(--pet-error);
+}
+
+.decor-btn-blue {
+  background: var(--pet-accent);
+}
+
+.sleeping .pet-machine {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.mining .pet-machine {
+  border-color: var(--pet-primary);
+  box-shadow:
+    0 0 14px var(--pet-primary-glow),
+    0 12px 24px rgba(0, 0, 0, 0.45);
+}
+
+.overdrive .pet-machine,
+.connecting .pet-machine {
+  border-color: var(--pet-accent);
+  box-shadow:
+    0 0 16px var(--pet-accent-glow),
+    0 12px 24px rgba(0, 0, 0, 0.45);
+}
+
+.lucky-flash .pet-machine,
+.new-best-diff .pet-machine,
+.jackpot .pet-machine {
+  border-color: var(--pet-secondary);
+  box-shadow:
+    0 0 22px var(--pet-secondary-glow),
+    inset 0 0 10px var(--pet-secondary-glow),
+    0 12px 24px rgba(0, 0, 0, 0.45);
+}
+
+.connection-error .pet-machine {
+  border-color: var(--pet-error);
+  box-shadow:
+    0 0 14px var(--pet-error-glow),
+    0 12px 24px rgba(0, 0, 0, 0.45);
+}
+
+.mining .light,
+.lucky-flash .light,
+.new-best-diff .light,
+.jackpot .light {
+  background: var(--pet-secondary);
+}
+
+.connecting .light,
+.overdrive .light {
+  background: var(--pet-accent);
+}
+
+.connection-error .light {
+  background: var(--pet-error);
+}
+
+.status-copy {
+  max-width: 100%;
+}
+
+.status {
+  color: #fff2cf;
+  font-size: 16px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.luck-meter {
+  min-width: 78px;
+}
+
+.luck-meter div {
+  width: 78px;
+}
+
+.control-button {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.start {
+  background: linear-gradient(180deg, #ffc452, #f7931a);
+}
+
+.stop {
+  background: linear-gradient(180deg, #5a2530, #2b151b);
+  border-color: rgba(255, 140, 125, 0.32);
+}
+
+.primary-metrics {
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding-bottom: 0;
+}
+
+.primary-metrics article {
+  align-content: space-between;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.065), transparent),
+    #141923;
+  border-color: rgba(247, 147, 26, 0.20);
+  display: grid;
+  min-height: 62px;
+  min-width: 0;
+  padding: 8px;
+}
+
+.primary-metrics strong {
+  color: #fff0bd;
+  font-size: 14px;
+  line-height: 1.1;
+}
+
+.detail-metrics {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 8px;
+  min-width: 0;
+}
+
+.detail-strip-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.secondary-metrics,
+.real-status-strip,
+.resource-status-strip {
+  background: rgba(0, 0, 0, 0.24);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.secondary-metrics {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  display: grid;
+  gap: 5px;
+  grid-template-columns: 1fr 1fr;
+  min-width: 0;
+  padding: 8px;
+}
+
+.real-status-strip,
+.resource-status-strip {
+  align-content: start;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 0;
+  min-width: 0;
+  padding: 8px;
+}
+
+.secondary-metrics span {
+  color: #b6becb;
+  display: block;
+  font: 9px "Cascadia Mono", Consolas, monospace;
+  line-height: 1.35;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.secondary-metrics b {
+  color: #7cffd1;
+  display: inline-block;
+  font: 700 7px Inter, system-ui, sans-serif;
+  letter-spacing: 0.06em;
+  margin-right: 4px;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid rgba(124, 255, 209, 0.72);
+  outline-offset: 2px;
+}
+
+.pet-shell.detail {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.detail-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
+}
+
+.detail-command-center {
+  align-items: stretch;
+  display: grid;
+  flex: 0 0 auto;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(260px, 1.1fr);
+  min-width: 0;
+}
+
+.detail-pet-stage,
+.detail-control-stack {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 46%),
+    rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  min-width: 0;
+}
+
+.detail-pet-stage {
+  align-items: center;
+  display: grid;
+  justify-items: center;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.detail-control-stack {
+  display: grid;
+  gap: 8px;
+  grid-template-rows: 1fr auto;
+  padding: 10px;
+}
+
+.detail-status-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(128px, auto);
+  min-width: 0;
+}
+
+.pet-shell.detail .pet-display-stack {
+  align-self: stretch;
+  gap: 8px;
+  justify-items: center;
+  max-width: 100%;
+  width: 100%;
+}
+
+.pet-shell.detail .pet-machine-container {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  max-width: 100%;
+  min-height: 0;
+  width: min(100%, 278px);
+}
+
+.pet-shell.detail .pet-machine {
+  height: 182px;
+  max-width: 100%;
+  padding: 8px;
+  width: 224px;
+}
+
+.pet-shell.detail .pet-shape-cyber-console .pet-machine {
+  width: 236px;
+}
+
+.pet-shell.detail .pet-shape-fortune-arcade .pet-machine {
+  width: 216px;
+}
+
+.pet-shell.detail .status-copy {
+  align-content: center;
+  background: rgba(0, 0, 0, 0.20);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  display: grid;
+  min-height: 64px;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.pet-shell.detail .status {
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.pet-shell.detail .luck-meter {
+  align-content: center;
+  background: rgba(0, 0, 0, 0.20);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  min-height: 64px;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.pet-shell.detail .luck-meter div {
+  width: 100%;
+}
+
+.pet-shell.detail .control-button {
+  align-self: stretch;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  margin: 0;
+  min-height: 56px;
+  width: 100%;
+}
+
+footer {
+  min-width: 0;
+}
+
+footer .cpu {
+  flex: 0 0 auto;
+}
+
+footer > span:not(.dot):not(.cpu) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-panel {
+  border-radius: 8px;
+  max-width: min(860px, calc(100vw - 16px));
+  padding: 0;
+}
+
+.settings-panel .panel-heading {
+  background: linear-gradient(180deg, rgba(24, 27, 34, 0.98), rgba(24, 27, 34, 0.9));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 10px 10px 8px;
+  z-index: 3;
+}
+
+.settings-section-tabs {
+  background: rgba(15, 18, 24, 0.86);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin: 0;
+  padding: 8px 10px;
+}
+
+.settings-content {
+  padding: 0 10px 58px;
+}
+
+.settings-panel .panel-actions {
+  margin: 0;
+  position: sticky;
+  bottom: 0;
+}
+
+.pet-settings-panel {
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  margin: 8px 0;
+  padding: 8px;
+}
+
+.settings-section-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-section-heading strong {
+  color: #ffd35a;
+  font: 800 10px "Cascadia Mono", Consolas, monospace;
+  margin: 0;
+}
+
+.pet-profile-picker {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 7px;
+}
+
+.pet-profile-option {
+  --pet-option-primary: #f7931a;
+  --pet-option-secondary: #ffd35a;
+  align-items: center;
+  background: #111720;
+  border: 1px solid #303946;
+  border-radius: 7px;
+  color: #f4f1e8;
+  display: flex;
+  gap: 7px;
+  min-height: 44px;
+  min-width: 0;
+  padding: 7px;
+  text-align: left;
+}
+
+.pet-profile-option.selected {
+  border-color: var(--pet-option-primary);
+  box-shadow: inset 0 0 0 1px var(--pet-option-glow);
+}
+
+.pet-profile-copy b,
+.pet-profile-copy small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pet-profile-copy b {
+  font-size: 9px;
+}
+
+.pet-profile-copy small {
+  color: #98a3b2;
+  font-size: 7px;
+  margin-top: 2px;
+}
+
+.pet-swatch {
+  background: linear-gradient(135deg, var(--pet-option-primary), var(--pet-option-secondary));
+  border-radius: 50%;
+  box-shadow: 0 0 10px var(--pet-option-glow);
+  flex: 0 0 auto;
+  height: 14px;
+  width: 14px;
+}
+
+.import-slot {
+  opacity: 0.58;
+}
+
+.import-slot .pet-swatch {
+  background: linear-gradient(135deg, #4d5665, #9aa3b4);
+}
+
+.settings-panel {
+  width: 100%;
+}
+
+@media (max-width: 380px) {
+  .primary-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .pet-profile-picker {
+    grid-template-columns: 1fr;
+  }
+}
+

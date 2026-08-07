@@ -6,5 +6,8 @@ pub(crate) mod hash;
 pub(crate) mod kernel;
 pub(crate) mod log;
 pub(crate) mod protocol;
+pub(crate) mod sanitize;
 pub(crate) mod state;
+pub(crate) mod stratum_session;
+pub(crate) mod submissions;
 pub(crate) mod workers;

@@ -1,4 +1,3 @@
-import type { Dispatch, SetStateAction } from "react";
 import Header from "./Header";
 import DashboardView from "../../features/dashboard/DashboardView";
 import WidgetView from "../../features/dashboard/WidgetView";
@@ -7,94 +6,17 @@ import JackpotDialog from "../../features/jackpot/JackpotDialog";
 import CpuWarningDialog from "../../features/mining/CpuWarningDialog";
 import PetDisplay from "../../features/pet/PetDisplay";
 import SettingsPanel from "../../features/settings/SettingsPanel";
-import type { MiningDashboardViewModel } from "../miningDashboardViewModel";
-import type { JackpotSequenceSnapshot } from "../../domain/jackpotSequence";
-import type { PetState, PetStatus } from "../../domain/petState";
-import type { PetProfile } from "../../pets/profiles";
-import type { AppConfig, SystemInfo } from "../../contracts/config";
-import type { BlockFoundEvent, RealMiningStats } from "../../contracts/mining";
 import { presetPort, threadsForPreset } from "../../domain/appConfig";
 import { formatDifficulty } from "../../domain/miningFormatters";
-
-interface AppShellProps {
-  displayMode: "compact" | "detail";
-  setDisplayMode: Dispatch<SetStateAction<"compact" | "detail">>;
-  activePetProfile: PetProfile;
-  petState: PetState;
-  petStatus: PetStatus;
-  jackpotSequence: JackpotSequenceSnapshot;
-  config: AppConfig;
-  isMining: boolean;
-  isCoolingDown: boolean;
-  miningControlPending: boolean;
-  alwaysOnTop: boolean;
-  toggleAlwaysOnTop: () => void;
-  dashboardViewModel: MiningDashboardViewModel;
-  realStats: RealMiningStats;
-  blockHeight: string;
-  onStartMining: () => Promise<void>;
-  onStopMining: () => Promise<void>;
-  lastShare: string;
-  latestLog: string;
-  openLogs: () => Promise<void>;
-  copyLogPath: () => Promise<void>;
-  effectiveCpuThreads: number;
-  errorMessage: string | null;
-  setErrorMessage: Dispatch<SetStateAction<string | null>>;
-  showCpuWarning: boolean;
-  setShowCpuWarning: Dispatch<SetStateAction<boolean>>;
-  confirmCpuWarning: () => Promise<void>;
-  showSettings: boolean;
-  setShowSettings: Dispatch<SetStateAction<boolean>>;
-  draftConfig: AppConfig;
-  setDraftConfig: Dispatch<SetStateAction<AppConfig>>;
-  saveSettings: () => Promise<void>;
-  systemInfo: SystemInfo;
-  hardwareReady: boolean;
-  jackpotVisible: boolean;
-  jackpotBlock: BlockFoundEvent | null;
-  dismissJackpotSequence: () => void;
-}
+import type { AppRuntimeModel } from "../state/useAppRuntime";
 
 export default function AppShell({
-  displayMode,
-  setDisplayMode,
-  activePetProfile,
-  petState,
-  petStatus,
-  jackpotSequence,
-  config,
-  isMining,
-  isCoolingDown,
-  miningControlPending,
-  alwaysOnTop,
-  toggleAlwaysOnTop,
-  dashboardViewModel,
-  realStats,
-  blockHeight,
-  onStartMining,
-  onStopMining,
-  lastShare,
-  latestLog,
-  openLogs,
-  copyLogPath,
-  effectiveCpuThreads,
-  errorMessage,
-  setErrorMessage,
-  showCpuWarning,
-  setShowCpuWarning,
-  confirmCpuWarning,
-  showSettings,
-  setShowSettings,
-  draftConfig,
-  setDraftConfig,
-  saveSettings,
-  systemInfo,
-  hardwareReady,
-  jackpotVisible,
-  jackpotBlock,
-  dismissJackpotSequence,
-}: AppShellProps) {
+  shell,
+  mining,
+  pet,
+  settings,
+  overlays,
+}: AppRuntimeModel) {
   const {
     displayedHashrate,
     probabilitySnapshot,
@@ -108,36 +30,40 @@ export default function AppShell({
     jobStatus,
     metrics,
     resourceMetrics,
-  } = dashboardViewModel;
-  const controlButtonLabel = miningControlPending
+  } = mining.dashboardViewModel;
+
+  const controlButtonLabel = mining.miningControlPending
     ? "Wait"
-    : isCoolingDown
+    : mining.isCoolingDown
       ? "Cool"
-      : isMining
+      : mining.isMining
         ? "Stop"
         : "Start";
+
   const petDisplay = (
     <PetDisplay
-      petProfile={activePetProfile}
+      petProfile={pet.activePetProfile}
       companion={petCompanion}
-      petStatus={petStatus}
+      petStatus={pet.petStatus}
       isMiningAnimation={isMiningAnimation}
-      displayMode={displayMode}
+      displayMode={shell.displayMode}
       compactRuntimeLabel={compactRuntimeLabel}
       displayedHashrate={displayedHashrate}
-      realStats={realStats}
-      blockHeight={blockHeight}
+      realStats={mining.realStats}
+      blockHeight={mining.blockHeight}
       formatDifficulty={formatDifficulty}
     />
   );
+
   const statusSummary = (
     <div className="status-copy">
       <p className="label">Status</p>
-      <p className={`status ${statusClassName}`} title={petStatus}>
+      <p className={`status ${statusClassName}`} title={pet.petStatus}>
         {displayStatus}
       </p>
     </div>
   );
+
   const luckMeter = (
     <div className="luck-meter" title="Display-only luck meter">
       <span>Luck</span>
@@ -147,12 +73,13 @@ export default function AppShell({
       </div>
     </div>
   );
+
   const controlButton = (
     <button
-      className={isMining ? "control-button stop" : "control-button start"}
-      disabled={isCoolingDown || miningControlPending}
-      onClick={isMining ? onStopMining : onStartMining}
-      title={miningControlPending ? "Mining command is still running" : undefined}
+      className={mining.isMining ? "control-button stop" : "control-button start"}
+      disabled={mining.isCoolingDown || mining.miningControlPending}
+      onClick={mining.isMining ? mining.onStopMining : mining.onStartMining}
+      title={mining.miningControlPending ? "Mining command is still running" : undefined}
       type="button"
     >
       {controlButtonLabel}
@@ -160,17 +87,19 @@ export default function AppShell({
   );
 
   return (
-    <main className={`pet-shell ${displayMode} ${displayMode === "detail" ? "dashboard" : "widget"} pet-profile-${activePetProfile.id} ${petState === "LUCKY_EVENT" ? "lucky" : ""} jackpot-${jackpotSequence.phase}`}>
+    <main
+      className={`pet-shell ${shell.displayMode} ${shell.displayMode === "detail" ? "dashboard" : "widget"} pet-profile-${pet.activePetProfile.id} ${pet.petState === "LUCKY_EVENT" ? "lucky" : ""} jackpot-${pet.jackpotSequence.phase}`}
+    >
       <Header
-        displayMode={displayMode}
-        setDisplayMode={setDisplayMode}
-        alwaysOnTop={alwaysOnTop}
-        toggleAlwaysOnTop={toggleAlwaysOnTop}
-        settingsDisabled={isMining}
-        openSettings={() => setShowSettings(true)}
+        displayMode={shell.displayMode}
+        setDisplayMode={shell.setDisplayMode}
+        alwaysOnTop={shell.alwaysOnTop}
+        toggleAlwaysOnTop={shell.toggleAlwaysOnTop}
+        settingsDisabled={mining.isMining}
+        openSettings={() => settings.setShowSettings(true)}
       />
 
-      {displayMode === "detail" ? (
+      {shell.displayMode === "detail" ? (
         <DashboardView
           petDisplay={petDisplay}
           statusSummary={statusSummary}
@@ -180,12 +109,12 @@ export default function AppShell({
           poolStatus={poolStatus}
           authStatus={authStatus}
           jobStatus={jobStatus}
-          lastShare={lastShare}
+          lastShare={mining.lastShare}
           metrics={metrics}
           resourceMetrics={resourceMetrics}
-          latestLog={latestLog}
-          openLogs={openLogs}
-          copyLogPath={copyLogPath}
+          latestLog={mining.latestLog}
+          openLogs={mining.openLogs}
+          copyLogPath={mining.copyLogPath}
         />
       ) : (
         <WidgetView
@@ -201,43 +130,47 @@ export default function AppShell({
 
       <AppFooter
         poolStatus={poolStatus}
-        engineStatus={dashboardViewModel.modeDescription}
-        effectiveCpuThreads={effectiveCpuThreads}
+        engineStatus={mining.dashboardViewModel.modeDescription}
+        effectiveCpuThreads={mining.effectiveCpuThreads}
       />
 
-      {errorMessage && (
-        <p className="error-banner" onClick={() => setErrorMessage(null)} title="Click to dismiss">
-          {errorMessage}
+      {shell.errorMessage && (
+        <p
+          className="error-banner"
+          onClick={() => shell.setErrorMessage(null)}
+          title="Click to dismiss"
+        >
+          {shell.errorMessage}
         </p>
       )}
 
-      {showCpuWarning && (
+      {overlays.showCpuWarning && (
         <CpuWarningDialog
-          setShowCpuWarning={setShowCpuWarning}
-          confirmCpuWarning={confirmCpuWarning}
+          setShowCpuWarning={overlays.setShowCpuWarning}
+          confirmCpuWarning={overlays.confirmCpuWarning}
         />
       )}
 
-      {showSettings && (
+      {settings.showSettings && (
         <SettingsPanel
-          draftConfig={draftConfig}
-          setDraftConfig={setDraftConfig}
-          setShowSettings={setShowSettings}
-          saveSettings={saveSettings}
-          systemInfo={systemInfo}
+          draftConfig={settings.draftConfig}
+          setDraftConfig={settings.setDraftConfig}
+          setShowSettings={settings.setShowSettings}
+          saveSettings={settings.saveSettings}
+          systemInfo={settings.systemInfo}
           presetPort={presetPort}
           threadsForPreset={threadsForPreset}
-          hardwareReady={hardwareReady}
+          hardwareReady={settings.hardwareReady}
         />
       )}
 
-      {jackpotVisible && jackpotBlock && (
+      {overlays.jackpotVisible && overlays.jackpotBlock && (
         <JackpotDialog
-          jackpotSequence={jackpotSequence}
-          jackpotBlock={jackpotBlock}
+          jackpotSequence={pet.jackpotSequence}
+          jackpotBlock={overlays.jackpotBlock}
           formatDifficulty={formatDifficulty}
-          openLogs={openLogs}
-          dismissJackpotSequence={dismissJackpotSequence}
+          openLogs={mining.openLogs}
+          dismissJackpotSequence={overlays.dismissJackpotSequence}
         />
       )}
     </main>

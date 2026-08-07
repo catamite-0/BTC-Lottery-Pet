@@ -55,11 +55,6 @@ export interface MiningLogPayload {
   message: string;
 }
 
-export interface MiningBlockFoundPayload {
-  session_id: number;
-  block: BlockFoundEvent;
-}
-
 export interface RuntimeMiningProfile {
   cpuThreads: number;
 }

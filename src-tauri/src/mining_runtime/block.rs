@@ -5,8 +5,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
 use crate::mining_events::{emit_runtime_event, MiningRuntimeEvent};
 use crate::mining_log::log_message_for_session;
@@ -14,16 +13,9 @@ use crate::mining_log::log_message_for_session;
 use crate::mining_settings::CandidateSubmissionStatus;
 use crate::mining_settings::FoundBlockEvent;
 
-const BLOCK_FOUND_EVENT: &str = "block-found";
 const MAX_RECORD_CREATE_ATTEMPTS: usize = 16;
 
 static BLOCK_RECORD_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
-#[derive(Clone, Serialize)]
-struct BlockFoundPayload<'a> {
-    session_id: u64,
-    block: &'a FoundBlockEvent,
-}
 
 pub(crate) fn record_block_candidate(app: &AppHandle, session_id: u64, event: &FoundBlockEvent) {
     let recorded_event = match app.path().app_log_dir() {
@@ -53,14 +45,7 @@ pub(crate) fn record_block_candidate(app: &AppHandle, session_id: u64, event: &F
         app,
         session_id,
         MiningRuntimeEvent::BlockCandidate {
-            block: recorded_event.clone(),
-        },
-    );
-    let _ = app.emit(
-        BLOCK_FOUND_EVENT,
-        BlockFoundPayload {
-            session_id,
-            block: &recorded_event,
+            block: recorded_event,
         },
     );
 }

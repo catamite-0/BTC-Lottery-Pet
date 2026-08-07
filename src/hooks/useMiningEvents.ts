@@ -1,6 +1,5 @@
 import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import {
-  listenToBlockFound,
   listenToMiningLogs,
   listenToMiningRuntimeEvents,
   listenToMiningStats,
@@ -22,7 +21,6 @@ import {
   cleanMiningLogMessage,
   createStructuredMiningEventState,
   reduceStructuredMiningEvents,
-  structuredMiningEventFromBlockCandidate,
   structuredMiningEventFromRuntimePayload,
 } from "../domain/structuredMiningEvents";
 import {
@@ -87,9 +85,7 @@ export function useMiningEvents({
 
       setRealStats((current) => {
         if (!isMiningRef.current) {
-          if (
-            event.payload.connection_status === "Stopped"
-          ) {
+          if (event.payload.connection_status === "Stopped") {
             return { ...event.payload, hashrate: 0 };
           }
 
@@ -110,7 +106,11 @@ export function useMiningEvents({
       });
     })
       .then((cleanup) => {
-        if (unmounted) { cleanup(); } else { unlisten = cleanup; }
+        if (unmounted) {
+          cleanup();
+        } else {
+          unlisten = cleanup;
+        }
       })
       .catch((error) => {
         if (runningInTauri) {
@@ -118,7 +118,10 @@ export function useMiningEvents({
         }
       });
 
-    return () => { unmounted = true; unlisten?.(); };
+    return () => {
+      unmounted = true;
+      unlisten?.();
+    };
   }, [
     activeMiningSessionIdRef,
     isMiningRef,
@@ -144,7 +147,11 @@ export function useMiningEvents({
       appendDevLog("stratum", message);
     })
       .then((cleanup) => {
-        if (unmounted) { cleanup(); } else { unlisten = cleanup; }
+        if (unmounted) {
+          cleanup();
+        } else {
+          unlisten = cleanup;
+        }
       })
       .catch((error) => {
         if (runningInTauri) {
@@ -152,7 +159,10 @@ export function useMiningEvents({
         }
       });
 
-    return () => { unmounted = true; unlisten?.(); };
+    return () => {
+      unmounted = true;
+      unlisten?.();
+    };
   }, [
     activeMiningSessionIdRef,
     appendDevLog,
@@ -167,6 +177,47 @@ export function useMiningEvents({
     listenToMiningRuntimeEvents((event) => {
       const payload = event.payload;
       if (!isCurrentSession(payload.session_id)) {
+        return;
+      }
+
+      if (payload.type === "block_candidate") {
+        const block = payload.block;
+        const wasMining = isMiningRef.current;
+        const structuredState = reduceStructuredMiningEvents(
+          createStructuredMiningEventState(realStatsRef.current),
+          [structuredMiningEventFromRuntimePayload(payload)],
+        );
+        emitMiningEvent(createBlockCandidateEvent("cpu", block));
+        emitMiningEvent(createJackpotEvent(block));
+        appendDevLog("stratum", `Block candidate found: job=${block.job_id}, hash=${block.hash}`);
+        setJackpotSequence(startJackpotSequence(block, wasMining));
+
+        if (wasMining && structuredState.jackpotPauseRequested) {
+          isMiningRef.current = false;
+          setIsMining(false);
+          setRealStats((current) => ({
+            ...current,
+            hashrate: 0,
+            connection_status: structuredState.connectionStatus ?? "Jackpot pause",
+          }));
+          setMiningControlPending(true);
+          void stopRealMining()
+            .then(() => setActiveMiningSessionId(null))
+            .catch((error) => {
+              appendDevLog("stratum", `Jackpot pause failed: ${formatError(error)}`);
+            })
+            .finally(() => {
+              setMiningControlPending(false);
+            });
+        }
+
+        void notifyJackpot(notificationSettingsFromConfig(configRef.current), {
+          pool: block.pool,
+          jobId: block.job_id,
+          hash: block.hash,
+          difficulty: block.difficulty,
+          timestamp: block.timestamp,
+        }).catch(() => {});
         return;
       }
 
@@ -221,7 +272,11 @@ export function useMiningEvents({
       }
     })
       .then((cleanup) => {
-        if (unmounted) { cleanup(); } else { unlisten = cleanup; }
+        if (unmounted) {
+          cleanup();
+        } else {
+          unlisten = cleanup;
+        }
       })
       .catch((error) => {
         if (runningInTauri) {
@@ -229,7 +284,10 @@ export function useMiningEvents({
         }
       });
 
-    return () => { unmounted = true; unlisten?.(); };
+    return () => {
+      unmounted = true;
+      unlisten?.();
+    };
   }, [
     activeMiningSessionIdRef,
     appendDevLog,
@@ -239,80 +297,11 @@ export function useMiningEvents({
     isMiningRef,
     realStatsRef,
     runningInTauri,
-    setErrorMessage,
-    setLastShare,
-    setRealStats,
-  ]);
-
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    let unmounted = false;
-
-    listenToBlockFound((event) => {
-      if (!isCurrentSession(event.payload.session_id)) {
-        return;
-      }
-
-      const block = event.payload.block;
-      const wasMining = isMiningRef.current;
-      const structuredState = reduceStructuredMiningEvents(
-        createStructuredMiningEventState(realStatsRef.current),
-        [structuredMiningEventFromBlockCandidate(block)],
-      );
-      emitMiningEvent(createBlockCandidateEvent("cpu", block));
-      emitMiningEvent(createJackpotEvent(block));
-      appendDevLog("stratum", `Block candidate found: job=${block.job_id}, hash=${block.hash}`);
-      setJackpotSequence(startJackpotSequence(block, wasMining));
-
-      if (wasMining && structuredState.jackpotPauseRequested) {
-        isMiningRef.current = false;
-        setIsMining(false);
-        setRealStats((current) => ({
-          ...current,
-          hashrate: 0,
-          connection_status: structuredState.connectionStatus ?? "Jackpot pause",
-        }));
-        setMiningControlPending(true);
-        void stopRealMining()
-          .then(() => setActiveMiningSessionId(null))
-          .catch((error) => {
-            appendDevLog("stratum", `Jackpot pause failed: ${formatError(error)}`);
-          })
-          .finally(() => {
-            setMiningControlPending(false);
-          });
-      }
-
-      void notifyJackpot(notificationSettingsFromConfig(configRef.current), {
-        pool: block.pool,
-        jobId: block.job_id,
-        hash: block.hash,
-        difficulty: block.difficulty,
-        timestamp: block.timestamp,
-      }).catch(() => {});
-    })
-      .then((cleanup) => {
-        if (unmounted) { cleanup(); } else { unlisten = cleanup; }
-      })
-      .catch((error) => {
-        if (runningInTauri) {
-          setErrorMessage(`Could not listen for block candidate events: ${formatError(error)}`);
-        }
-      });
-
-    return () => { unmounted = true; unlisten?.(); };
-  }, [
-    appendDevLog,
-    activeMiningSessionIdRef,
-    configRef,
-    emitMiningEvent,
-    isMiningRef,
-    realStatsRef,
-    runningInTauri,
     setActiveMiningSessionId,
     setErrorMessage,
     setIsMining,
     setJackpotSequence,
+    setLastShare,
     setMiningControlPending,
     setRealStats,
   ]);

@@ -1,0 +1,447 @@
+/* Main UI architecture */
+.pet-shell.widget,
+.pet-shell.dashboard {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.topbar .settings-button {
+  background: #1b202a;
+  border: 1px solid #3b4658;
+  border-radius: 6px;
+  color: #aeb7c4;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  margin-left: 0;
+  padding: 4px 7px;
+}
+
+.topbar .settings-button:disabled {
+  color: #68717e;
+}
+
+.widget-view,
+.dashboard-view {
+  min-height: 0;
+  min-width: 0;
+}
+
+.widget-view {
+  align-content: start;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  overflow-y: auto;
+}
+
+.widget-pet-stage {
+  display: grid;
+  justify-items: center;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.pet-shell.widget .pet-display-stack {
+  gap: 5px;
+  width: min(100%, 260px);
+}
+
+.pet-shell.widget .pet-machine-container {
+  width: min(100%, 242px);
+}
+
+.pet-shell.widget .pet-machine {
+  height: clamp(102px, 30dvh, 132px);
+  width: clamp(150px, 50vw, 178px);
+}
+
+.pet-shell.widget .pet-shape-cyber-console .pet-machine {
+  width: clamp(158px, 53vw, 188px);
+}
+
+.pet-shell.widget .pet-shape-fortune-arcade .pet-machine {
+  width: clamp(146px, 49vw, 172px);
+}
+
+.pet-shell.widget .pet-companion-panel {
+  display: none;
+}
+
+.pet-shell.widget .mini-stats-line {
+  margin-top: 0;
+}
+
+.mining-control-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 48%),
+    rgba(0, 0, 0, 0.20);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.mining-control-panel.widget {
+  gap: 6px;
+  padding: 8px;
+  width: min(100%, 278px);
+}
+
+.mining-control-panel.widget .control-readout,
+.mining-control-panel.widget .control-context {
+  display: none;
+}
+
+.mining-control-panel.dashboard {
+  align-content: stretch;
+  grid-template-rows: auto 1fr auto auto;
+}
+
+.control-readout {
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(247, 147, 26, 0.16);
+  border-radius: 7px;
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.control-readout span,
+.control-context span {
+  color: #8f9baa;
+  display: block;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.control-readout strong {
+  color: #fff0bd;
+  font: 800 18px "Cascadia Mono", Consolas, monospace;
+  margin-top: 3px;
+}
+
+.control-status-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(108px, auto);
+  min-width: 0;
+}
+
+.mining-control-panel.widget .control-status-grid {
+  grid-template-columns: 1fr;
+}
+
+.control-context {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: 1fr 1fr;
+  min-width: 0;
+}
+
+.mining-control-panel.widget .control-context {
+  grid-template-columns: 1fr;
+}
+
+.dashboard-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
+}
+
+.dashboard-command-row {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 10px;
+  grid-template-columns: minmax(232px, 0.9fr) minmax(270px, 1.1fr);
+  min-width: 0;
+}
+
+.dashboard-pet-panel {
+  align-items: center;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 48%),
+    rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  display: grid;
+  justify-items: center;
+  min-width: 0;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.pet-shell.dashboard .pet-display-stack {
+  gap: 8px;
+  max-width: 100%;
+  width: 100%;
+}
+
+.pet-shell.dashboard .pet-machine-container {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  width: min(100%, 278px);
+}
+
+.pet-shell.dashboard .pet-machine {
+  height: 182px;
+  max-width: 100%;
+  padding: 8px;
+  width: 224px;
+}
+
+.pet-shell.dashboard .pet-shape-cyber-console .pet-machine {
+  width: 236px;
+}
+
+.pet-shell.dashboard .pet-shape-fortune-arcade .pet-machine {
+  width: 216px;
+}
+
+.pet-shell.dashboard .pet-companion-panel {
+  display: grid;
+  gap: 6px;
+  width: min(100%, 278px);
+}
+
+.pet-shell.dashboard .status-copy,
+.pet-shell.dashboard .luck-meter,
+.pet-shell.widget .status-copy,
+.pet-shell.widget .luck-meter {
+  align-content: center;
+  background: rgba(0, 0, 0, 0.20);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  display: grid;
+  min-width: 0;
+  padding: 8px 9px;
+}
+
+.pet-shell.widget .status-copy,
+.pet-shell.widget .luck-meter {
+  padding: 6px 8px;
+}
+
+.pet-shell.dashboard .status,
+.pet-shell.widget .status {
+  line-height: 1.1;
+}
+
+.pet-shell.dashboard .luck-meter div,
+.pet-shell.widget .luck-meter div {
+  width: 100%;
+}
+
+.pet-shell.dashboard .control-button,
+.pet-shell.widget .control-button {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  margin: 0;
+  min-height: 44px;
+  width: 100%;
+}
+
+.pet-shell.widget .control-button {
+  min-height: 36px;
+}
+
+.dashboard-metrics-panel {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1.15fr) repeat(3, minmax(170px, 0.75fr));
+  min-width: 0;
+}
+
+.dashboard-primary-metrics {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.dashboard-primary-metrics article,
+.dashboard-secondary-metrics,
+.dashboard-connection-panel,
+.dashboard-resource-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 52%),
+    rgba(0, 0, 0, 0.20);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  min-width: 0;
+}
+
+.dashboard-primary-metrics article {
+  align-content: space-between;
+  display: grid;
+  min-height: 68px;
+  padding: 9px;
+}
+
+.dashboard-primary-metrics strong {
+  color: #fff0bd;
+  font-size: 15px;
+  line-height: 1.1;
+}
+
+.dashboard-secondary-metrics,
+.dashboard-connection-panel,
+.dashboard-resource-panel {
+  align-content: start;
+  display: grid;
+  gap: 5px;
+  grid-template-columns: 1fr 1fr;
+  padding: 9px;
+}
+
+.dashboard-secondary-metrics span,
+.dashboard-connection-panel span,
+.dashboard-resource-panel span {
+  color: #b6becb;
+  display: block;
+  font: 9px "Cascadia Mono", Consolas, monospace;
+  line-height: 1.35;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-secondary-metrics b,
+.dashboard-connection-panel b,
+.dashboard-resource-panel b {
+  color: #7cffd1;
+  display: inline-block;
+  font: 700 7px Inter, system-ui, sans-serif;
+  letter-spacing: 0.06em;
+  margin-right: 4px;
+}
+
+.dashboard-log-panel {
+  align-items: center;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent),
+    rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: #a5abb4;
+  display: grid;
+  flex: 0 0 auto;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  padding: 8px;
+}
+
+.app-footer {
+  align-items: center;
+  color: #8b95a4;
+  display: grid;
+  font-size: 9px;
+  gap: 6px;
+  grid-template-columns: auto minmax(64px, auto) minmax(0, 1fr) auto;
+  min-width: 0;
+  padding-top: 8px;
+}
+
+.app-footer span:not(.dot):not(.cpu) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .dashboard-command-row,
+  .dashboard-metrics-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-secondary-metrics,
+  .dashboard-connection-panel,
+  .dashboard-resource-panel {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .topbar {
+    gap: 8px;
+  }
+
+  .header-actions {
+    gap: 4px;
+  }
+
+  .topbar .settings-button,
+  .mode-button,
+  .pin-button {
+    font-size: 7px;
+    padding: 4px 5px;
+  }
+
+  .dashboard-view {
+    gap: 8px;
+  }
+
+  .dashboard-primary-metrics,
+  .dashboard-secondary-metrics,
+  .dashboard-connection-panel,
+  .dashboard-resource-panel,
+  .control-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-log-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .log-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 380px) {
+  .pet-shell.widget,
+  .pet-shell.dashboard {
+    padding: 10px;
+  }
+
+  .pet-shell.dashboard .pet-machine {
+    height: 150px;
+    width: 190px;
+  }
+
+  .pet-shell.dashboard .pet-shape-cyber-console .pet-machine {
+    width: 198px;
+  }
+
+  .pet-shell.dashboard .pet-shape-fortune-arcade .pet-machine {
+    width: 184px;
+  }
+
+  .mining-control-panel,
+  .dashboard-pet-panel {
+    padding: 8px;
+  }
+
+  .app-footer {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .app-footer span:nth-child(3) {
+    display: none;
+  }
+}
+

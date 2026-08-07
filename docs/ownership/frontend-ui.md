@@ -6,7 +6,7 @@ Primary paths:
 
 - `src/app/shell`
 - `src/features`
-- `src/styles.css`
+- `src/styles/`
 - Frontend view-model tests in `test`
 
 Allowed changes:

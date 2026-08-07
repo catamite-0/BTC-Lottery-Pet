@@ -16,5 +16,4 @@ export const TAURI_EVENTS = {
   miningStats: "mining-stats",
   miningLog: "mining-log",
   miningEvent: "mining-event",
-  blockFound: "block-found",
 } as const;

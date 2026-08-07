@@ -5,7 +5,7 @@ Use this scope for Stratum runtime behavior, worker orchestration, logging, and 
 Primary paths:
 
 - `src-tauri/crates/btc-mining-core`
-- `src-tauri/src/mining_runtime`
+- `src-tauri/src/mining_runtime` (`controller`, `stratum_session`, `submissions`, `sanitize`, `workers`, …)
 - `src-tauri/src/app_adapter/mining_settings.rs`
 
 Allowed changes:

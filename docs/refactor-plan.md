@@ -211,7 +211,7 @@ Use these ownership lines when splitting future work. Detailed scopes live in
 | --- | --- | --- |
 | Algorithm | `src-tauri/crates/btc-hash-*`, hash benchmarks, target math | UI layout, Stratum runtime |
 | Backend runtime | `src-tauri/crates/btc-mining-core`, `src-tauri/src/mining_runtime` | React layout, SHA internals |
-| Frontend UI | `src/app/shell`, `src/features`, `src/styles.css` | Rust mining behavior |
+| Frontend UI | `src/app/shell`, `src/features`, `src/styles/` | Rust mining behavior |
 | Integration contracts | `src/contracts`, `src/platform/tauri`, `src/hooks`, `src-tauri/src/app_adapter`, `src-tauri/src/lib.rs` | Pure visual redesigns or hash internals |
 | Documentation / release check | `README.md`, `RELEASE_CHECKLIST.md`, `CHANGELOG.md`, `docs/**`, release validation notes | Product behavior code, uncoordinated runtime or UI changes |
 
@@ -220,7 +220,7 @@ Only one thread should edit these hotspots at a time:
 - `src/App.tsx`
 - `src/app/shell/AppShell.tsx`
 - `src/features/settings/SettingsPanel.tsx`
-- `src/styles.css`
+- `src/styles/`
 - `src-tauri/src/mining_runtime/controller.rs`
 - `src-tauri/src/mining_runtime/workers.rs`
 - `src-tauri/src/lib.rs`

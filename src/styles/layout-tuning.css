@@ -1,0 +1,412 @@
+/* Focused UI layout tuning */
+.topbar {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.topbar > div:first-child {
+  min-width: 0;
+}
+
+.topbar h1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.mode-button,
+.pin-button,
+.topbar .settings-button {
+  min-height: 28px;
+}
+
+.widget-view {
+  align-content: center;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.pet-shell.widget .pet-display-stack {
+  width: min(100%, 286px);
+}
+
+.pet-shell.widget .pet-machine-container {
+  width: min(100%, 260px);
+}
+
+.pet-shell.widget .pet-machine {
+  height: clamp(112px, 34dvh, 148px);
+  width: clamp(162px, 58vw, 198px);
+}
+
+.pet-shell.widget .pet-shape-cyber-console .pet-machine {
+  width: clamp(168px, 62vw, 208px);
+}
+
+.pet-shell.widget .pet-shape-fortune-arcade .pet-machine {
+  width: clamp(156px, 56vw, 188px);
+}
+
+.mining-control-panel.widget {
+  width: min(100%, 292px);
+}
+
+.mining-control-panel.widget .control-status-grid {
+  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr) minmax(98px, 0.75fr);
+}
+
+.pet-shell.widget .luck-meter {
+  grid-template-columns: auto auto minmax(44px, 1fr);
+}
+
+.pet-shell.widget .luck-meter div {
+  width: 100%;
+}
+
+.mini-stats-line {
+  min-width: 0;
+  width: 100%;
+}
+
+.mini-stats-line span:not(.divider) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-view {
+  gap: 12px;
+  padding: 2px 4px 4px 0;
+}
+
+.dashboard-command-row {
+  grid-template-columns: minmax(228px, 0.86fr) minmax(288px, 1.14fr);
+}
+
+.dashboard-pet-panel,
+.mining-control-panel,
+.dashboard-primary-metrics article,
+.dashboard-secondary-metrics,
+.dashboard-connection-panel,
+.dashboard-resource-panel,
+.dashboard-log-panel {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+.mining-control-panel.dashboard {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.control-readout {
+  align-content: center;
+  display: grid;
+  min-height: 62px;
+}
+
+.control-status-grid {
+  grid-template-columns: minmax(0, 1.05fr) minmax(124px, 0.95fr);
+}
+
+.control-context {
+  align-self: end;
+}
+
+.dashboard-metrics-panel {
+  align-items: stretch;
+  grid-template-areas:
+    "primary secondary connection"
+    "primary resource resource";
+  grid-template-columns: minmax(258px, 1.05fr) minmax(184px, 0.8fr) minmax(184px, 0.8fr);
+}
+
+.dashboard-primary-metrics {
+  grid-area: primary;
+}
+
+.dashboard-secondary-metrics {
+  grid-area: secondary;
+}
+
+.dashboard-connection-panel {
+  grid-area: connection;
+}
+
+.dashboard-resource-panel {
+  grid-area: resource;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+}
+
+.dashboard-primary-metrics article {
+  min-height: 74px;
+}
+
+.dashboard-secondary-metrics,
+.dashboard-connection-panel,
+.dashboard-resource-panel {
+  min-height: 74px;
+}
+
+.dashboard-log-panel {
+  position: sticky;
+  bottom: 0;
+}
+
+.log-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.pet-machine-container,
+.pet-machine,
+.pet-companion-panel {
+  max-width: 100%;
+}
+
+.pet-shell.dashboard .pet-care-meters {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.pet-speech span,
+.pet-profile-summary small {
+  overflow-wrap: anywhere;
+}
+
+.settings-panel {
+  max-width: min(980px, calc(100vw - 16px));
+}
+
+.settings-section-tabs {
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.settings-content {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 10px 10px 66px;
+}
+
+.settings-section-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 48%),
+    rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  margin: 0;
+  min-width: 0;
+  padding: 10px;
+}
+
+.device-settings-panel,
+.pet-settings-panel {
+  margin: 0;
+}
+
+.settings-section-heading {
+  min-width: 0;
+}
+
+.settings-section-heading strong {
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.form-grid {
+  gap: 8px;
+}
+
+.settings-field,
+.toggle-field {
+  color: #8c929d;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  min-width: 0;
+  text-transform: uppercase;
+}
+
+.form-grid .toggle-field {
+  grid-column: auto;
+}
+
+.preset-choice-group {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 4px;
+}
+
+.preset-choice-group button {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #c9d1dc;
+  font-size: 9px;
+  font-weight: 800;
+  min-height: 28px;
+  min-width: 0;
+  padding: 5px 6px;
+  text-transform: uppercase;
+}
+
+.preset-choice-group button.selected,
+.preset-choice-group button[aria-pressed="true"] {
+  background: rgba(247, 147, 26, 0.14);
+  border-color: rgba(247, 147, 26, 0.58);
+  color: #ffd35a;
+}
+
+.toggle-field {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 34px;
+  padding: 7px 8px;
+}
+
+.toggle-field span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toggle-field input[type="checkbox"] {
+  appearance: none;
+  background: #252b35;
+  border: 1px solid #3b4658;
+  border-radius: 999px;
+  display: block;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  position: relative;
+  width: 34px;
+}
+
+.toggle-field input[type="checkbox"]::before {
+  background: #8f9aaa;
+  border-radius: 50%;
+  content: "";
+  height: 12px;
+  left: 2px;
+  position: absolute;
+  top: 2px;
+  transition: transform 160ms ease, background 160ms ease;
+  width: 12px;
+}
+
+.toggle-field input[type="checkbox"]:checked {
+  background: rgba(247, 147, 26, 0.18);
+  border-color: rgba(247, 147, 26, 0.64);
+}
+
+.toggle-field input[type="checkbox"]:checked::before {
+  background: #ffd35a;
+  transform: translateX(16px);
+}
+
+.pet-profile-picker {
+  grid-template-columns: repeat(auto-fit, minmax(172px, 1fr));
+}
+
+.pet-profile-option {
+  min-height: 48px;
+}
+
+@media (max-width: 980px) {
+  .dashboard-metrics-panel {
+    grid-template-areas:
+      "primary primary"
+      "secondary connection"
+      "resource resource";
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .dashboard-command-row {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-metrics-panel {
+    grid-template-areas:
+      "primary"
+      "secondary"
+      "connection"
+      "resource";
+    grid-template-columns: 1fr;
+  }
+
+  .settings-content {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .settings-section-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mining-control-panel.dashboard .control-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .preset-choice-group {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pet-shell.dashboard .pet-care-meters {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 440px) {
+  .topbar {
+    grid-template-columns: 1fr;
+  }
+
+  .header-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .mode-button,
+  .pin-button,
+  .topbar .settings-button {
+    width: 100%;
+  }
+
+  .mining-control-panel.widget .control-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pet-shell.widget .luck-meter {
+    grid-template-columns: auto auto minmax(66px, 1fr);
+  }
+}
+
+@media (max-width: 390px) {
+  .settings-section-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+

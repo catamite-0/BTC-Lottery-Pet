@@ -6,11 +6,9 @@ export const PET_PROFILE_STATUSES: PetStatus[] = [
   "Sleeping",
   "Connecting",
   "Mining",
-  "Overdrive",
   "Lucky Flash",
   "Cooling Down",
   "Connection Error",
-  "New Best Diff",
   "Jackpot",
 ];
 
@@ -25,11 +23,9 @@ export type PetAnimationToken =
   | "sleeping"
   | "connecting"
   | "mining"
-  | "overdrive"
   | "lucky-flash"
   | "cooling-down"
   | "connection-error"
-  | "new-best-diff"
   | "jackpot";
 
 export interface PetPalette {
@@ -55,7 +51,6 @@ export interface PetVoiceLines {
   idle: string;
   connecting: string;
   mining: string;
-  overdrive: string;
   lucky: string;
   jackpot: string;
   error: string;
@@ -123,11 +118,9 @@ const PET_ANIMATION_TOKEN_VALUES: PetAnimationToken[] = [
   "sleeping",
   "connecting",
   "mining",
-  "overdrive",
   "lucky-flash",
   "cooling-down",
   "connection-error",
-  "new-best-diff",
   "jackpot",
 ];
 
@@ -150,12 +143,6 @@ const classicStates: Record<PetStatus, PetStateAppearance> = {
     animation: "mining",
     statusLabel: "Rolling",
   },
-  Overdrive: {
-    expression: "(>_>)!",
-    slots: ["G", "P", "U"],
-    animation: "overdrive",
-    statusLabel: "Overdrive",
-  },
   "Lucky Flash": {
     expression: "(*_*)",
     slots: ["B", "T", "C"],
@@ -173,12 +160,6 @@ const classicStates: Record<PetStatus, PetStateAppearance> = {
     slots: ["E", "R", "R"],
     animation: "connection-error",
     statusLabel: "Fault",
-  },
-  "New Best Diff": {
-    expression: "(^_^)",
-    slots: ["B", "S", "T"],
-    animation: "new-best-diff",
-    statusLabel: "Best",
   },
   Jackpot: {
     expression: "(BTC!)",
@@ -216,7 +197,6 @@ export const builtinPetProfiles: PetProfile[] = [
         idle: "Waiting for a spin.",
         connecting: "Listening for the pool tone.",
         mining: "Reels are warm. Hashes are moving.",
-        overdrive: "CPU lane is hot.",
         lucky: "That share sounded bright.",
         jackpot: "Jackpot signal locked.",
         error: "Pool line is rough. Check the route.",
@@ -329,7 +309,6 @@ function validateVoice(profile: Partial<PetManifest>, errors: string[]) {
     "idle",
     "connecting",
     "mining",
-    "overdrive",
     "lucky",
     "jackpot",
     "error",

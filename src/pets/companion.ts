@@ -6,7 +6,6 @@ export type PetMood =
   | "resting"
   | "curious"
   | "focused"
-  | "hyped"
   | "proud"
   | "stressed"
   | "recovering";
@@ -57,7 +56,6 @@ const moodLabels: Record<PetMood, string> = {
   resting: "Resting",
   curious: "Curious",
   focused: "Focused",
-  hyped: "Hyped",
   proud: "Proud",
   stressed: "Needs help",
   recovering: "Cooling",
@@ -83,10 +81,7 @@ export function petMoodFromStatus(status: PetStatus): PetMood {
       return "curious";
     case "Mining":
       return "focused";
-    case "Overdrive":
-      return "hyped";
     case "Lucky Flash":
-    case "New Best Diff":
     case "Jackpot":
       return "proud";
     case "Cooling Down":
@@ -110,10 +105,7 @@ function reactionForStatus(profile: PetProfile, status: PetStatus, lastEvent: Mi
       return voice.connecting;
     case "Mining":
       return voice.mining;
-    case "Overdrive":
-      return voice.overdrive;
     case "Lucky Flash":
-    case "New Best Diff":
       return voice.lucky;
     case "Jackpot":
       return voice.jackpot;
@@ -132,8 +124,6 @@ function needForMood(mood: PetMood, connectionStatus: string) {
       return `Handshake: ${connectionStatus || "Starting"}`;
     case "focused":
       return "Keep the run steady.";
-    case "hyped":
-      return "Watch CPU pressure.";
     case "proud":
       return "Check the latest signal.";
     case "stressed":
@@ -159,8 +149,7 @@ export function derivePetCompanionSnapshot(context: PetCompanionContext): PetCom
   const energy = clampPercent(
     58 +
       restingGain -
-      miningDrain +
-      (mood === "hyped" ? 12 : 0) -
+      miningDrain -
       (mood === "stressed" ? 18 : 0) -
       (mood === "recovering" ? 8 : 0),
   );
@@ -176,8 +165,7 @@ export function derivePetCompanionSnapshot(context: PetCompanionContext): PetCom
     (context.isMining ? 48 : 18) +
       hashrateScore +
       context.luckMeter / 4 +
-      (mood === "curious" ? 16 : 0) +
-      (mood === "hyped" ? 18 : 0) -
+      (mood === "curious" ? 16 : 0) -
       (mood === "stressed" ? 24 : 0),
   );
 

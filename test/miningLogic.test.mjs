@@ -237,10 +237,10 @@ test("pet companion snapshot adds mood, care, and personality feedback", () => {
   assert.equal(resting.reaction, profile.personality.voice.idle);
   assert.equal(resting.badges[0][0], "MOOD");
 
-  const overdrive = derivePetCompanionSnapshot({
+  const mining = derivePetCompanionSnapshot({
     ...baseContext,
     petState: "MINING_CPU",
-    petStatus: "Overdrive",
+    petStatus: "Mining",
     isMining: true,
     connectionStatus: "Mining",
     acceptedShares: 3,
@@ -249,10 +249,10 @@ test("pet companion snapshot adds mood, care, and personality feedback", () => {
     luckMeter: 68,
     miningUptimeSeconds: 45,
   });
-  assert.equal(overdrive.mood, "hyped");
-  assert.equal(overdrive.badges[2][1], "CPU");
-  assert.equal(overdrive.care.focus.value > resting.care.focus.value, true);
-  assert.equal(overdrive.care.bond.value > resting.care.bond.value, true);
+  assert.equal(mining.mood, "focused");
+  assert.equal(mining.badges[2][1], "CPU");
+  assert.equal(mining.care.focus.value > resting.care.focus.value, true);
+  assert.equal(mining.care.bond.value > resting.care.bond.value, true);
 
   const rejected = derivePetCompanionSnapshot({
     ...baseContext,

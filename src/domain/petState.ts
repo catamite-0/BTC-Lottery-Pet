@@ -13,11 +13,9 @@ export type PetStatus =
   | "Sleeping"
   | "Connecting"
   | "Mining"
-  | "Overdrive"
   | "Lucky Flash"
   | "Cooling Down"
   | "Connection Error"
-  | "New Best Diff"
   | "Jackpot";
 
 export interface PetStateContext {

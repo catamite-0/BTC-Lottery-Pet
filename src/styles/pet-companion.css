@@ -59,41 +59,8 @@
   width: 11px;
 }
 
-.pet-ornament-antenna {
-  background: var(--pet-accent);
-  border-radius: 999px;
-  box-shadow: 0 0 8px var(--pet-accent-glow);
-  height: 18px;
-  left: 50%;
-  top: -14px;
-  transform: translateX(-50%);
-  width: 4px;
-}
 
-.pet-ornament-antenna::before {
-  background: var(--pet-secondary);
-  border-radius: 50%;
-  box-shadow: 0 0 10px var(--pet-secondary-glow);
-  content: "";
-  height: 10px;
-  left: -3px;
-  position: absolute;
-  top: -7px;
-  width: 10px;
-}
 
-.pet-ornament-coin {
-  background:
-    radial-gradient(circle at 35% 30%, #fff1a8, transparent 32%),
-    linear-gradient(135deg, var(--pet-secondary), var(--pet-primary));
-  border: 1px solid rgba(255, 255, 255, 0.34);
-  border-radius: 50%;
-  box-shadow: 0 0 12px var(--pet-secondary-glow);
-  height: 18px;
-  right: 10px;
-  top: -8px;
-  width: 18px;
-}
 
 .pet-identity-strip {
   align-items: center;
@@ -221,28 +188,15 @@
   height: 100%;
 }
 
-.pet-shape-cyber-console .pet-machine {
-  border-radius: 10px 10px 18px 18px;
-}
 
-.pet-shape-cyber-console .pet-screen {
-  border-radius: 7px;
-}
 
-.pet-shape-fortune-arcade .pet-machine {
-  border-radius: 22px 22px 11px 11px;
-}
 
-.pet-shape-fortune-arcade .pet-screen {
-  border-radius: 14px 14px 6px 6px;
-}
 
 .pet-mood-stressed .pet-speech {
   border-color: var(--pet-error-glow);
 }
 
-.pet-mood-proud .pet-speech,
-.pet-mood-hyped .pet-speech {
+.pet-mood-proud .pet-speech {
   border-color: var(--pet-secondary-glow);
 }
 
@@ -315,18 +269,6 @@
   padding: 4px 6px;
 }
 
-.pet-shell.compact .status-row {
-  align-items: center;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  justify-content: flex-start;
-  min-height: 0;
-  padding: 0 0 2px;
-}
 
 .pet-shell.compact .pet-display-stack {
   gap: 5px;
@@ -351,13 +293,7 @@
   width: clamp(154px, 54vw, 190px);
 }
 
-.pet-shell.compact .pet-shape-cyber-console .pet-machine {
-  width: clamp(164px, 57vw, 198px);
-}
 
-.pet-shell.compact .pet-shape-fortune-arcade .pet-machine {
-  width: clamp(150px, 52vw, 184px);
-}
 
 .pet-shell.compact .pet-companion-panel {
   display: grid;

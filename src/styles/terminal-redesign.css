@@ -116,13 +116,7 @@
   width: clamp(174px, 60vw, 210px);
 }
 
-.pet-shell.widget .pet-shape-cyber-console .pet-machine {
-  width: clamp(184px, 64vw, 222px);
-}
 
-.pet-shell.widget .pet-shape-fortune-arcade .pet-machine {
-  width: clamp(166px, 58vw, 202px);
-}
 
 .pet-shell.widget .mini-stats-line {
   background: transparent;
@@ -180,13 +174,7 @@
   width: 252px;
 }
 
-.pet-shell.dashboard .pet-shape-cyber-console .pet-machine {
-  width: 266px;
-}
 
-.pet-shell.dashboard .pet-shape-fortune-arcade .pet-machine {
-  width: 242px;
-}
 
 .pet-shell.dashboard .pet-companion-panel {
   gap: 8px;

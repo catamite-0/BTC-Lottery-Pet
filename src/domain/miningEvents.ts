@@ -1,4 +1,4 @@
-import type { BlockFoundEvent } from "../miningLogic";
+import type { BlockFoundEvent } from "../contracts/mining";
 
 export type MiningEventLevel = "LOW_LEVEL" | "MID_LEVEL" | "HIGH_LEVEL";
 export type MiningEventSource = "cpu" | "ui";

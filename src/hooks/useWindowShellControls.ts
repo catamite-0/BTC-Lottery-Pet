@@ -1,5 +1,5 @@
 import { useState, type Dispatch, type SetStateAction } from "react";
-import { formatError } from "../formatting";
+import { formatError } from "../domain/formatting";
 import { setWindowAlwaysOnTop } from "../platform/tauri/windowClient";
 
 interface UseWindowShellControlsOptions {

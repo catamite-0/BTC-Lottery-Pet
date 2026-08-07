@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { AppConfig } from "../../miningLogic";
+import type { AppConfig } from "../../contracts/config";
 
 interface NotificationSettingsSectionProps {
   draftConfig: AppConfig;

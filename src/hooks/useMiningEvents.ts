@@ -29,10 +29,10 @@ import {
   startJackpotSequence,
   type JackpotSequenceSnapshot,
 } from "../domain/jackpotSequence";
-import { formatError } from "../formatting";
-import type { AppConfig, RealMiningStats } from "../miningLogic";
-import { notificationSettingsFromConfig } from "../notificationSettings";
-import type { MiningEngineKind } from "../engines/miningEngine";
+import { formatError } from "../domain/formatting";
+import type { AppConfig } from "../contracts/config";
+import type { RealMiningStats } from "../contracts/mining";
+import { notificationSettingsFromConfig } from "../domain/notificationSettings";
 
 interface LatestRef<T> {
   current: T;
@@ -259,12 +259,10 @@ export function useMiningEvents({
         createStructuredMiningEventState(realStatsRef.current),
         [structuredMiningEventFromBlockCandidate(block)],
       );
-      const engineKind: MiningEngineKind = "cpu";
-
       emitMiningEvent(createBlockCandidateEvent("cpu", block));
       emitMiningEvent(createJackpotEvent(block));
       appendDevLog("stratum", `Block candidate found: job=${block.job_id}, hash=${block.hash}`);
-      setJackpotSequence(startJackpotSequence(block, wasMining, engineKind));
+      setJackpotSequence(startJackpotSequence(block, wasMining));
 
       if (wasMining && structuredState.jackpotPauseRequested) {
         isMiningRef.current = false;

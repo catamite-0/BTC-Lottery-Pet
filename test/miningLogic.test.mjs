@@ -4,15 +4,17 @@ import assert from "node:assert/strict";
 import {
   adaptConfigForHardware,
   createRuntimeCapabilities,
-  expectedSharesPerHour,
-  formatShareRate,
-  formatHashrate,
   normalizeAppConfig,
   presetPort,
   realMiningStartError,
   resolveRuntimeMiningProfile,
   threadsForPreset,
-} from "../.test-dist/miningLogic.js";
+} from "../.test-dist/domain/appConfig.js";
+import {
+  expectedSharesPerHour,
+  formatShareRate,
+  formatHashrate,
+} from "../.test-dist/domain/miningFormatters.js";
 import {
   derivePetState,
   petStatusFromState,
@@ -30,7 +32,7 @@ import {
   nextJackpotPhase,
   startJackpotSequence,
 } from "../.test-dist/domain/jackpotSequence.js";
-import { createCpuMiningEngine } from "../.test-dist/engines/miningEngine.js";
+import { createMiningSessionStatus } from "../.test-dist/domain/miningSession.js";
 import {
   derivePetCompanionSnapshot,
   petMoodFromStatus,
@@ -450,7 +452,7 @@ test("jackpot sequence advances through the required presentation phases", () =>
     record_file: "block-candidate-job-1.json",
   };
 
-  const sequence = startJackpotSequence(block, true, "cpu");
+  const sequence = startJackpotSequence(block, true);
   assert.equal(sequence.phase, "detect");
   assert.equal(nextJackpotPhase("detect"), "pause");
   assert.equal(nextJackpotPhase("pause"), "screen_effect");
@@ -459,25 +461,13 @@ test("jackpot sequence advances through the required presentation phases", () =>
   assert.equal(nextJackpotPhase("reveal"), "resume");
 });
 
-test("mining engine facade owns start stop status calls", async () => {
-  const calls = [];
-  const engine = createCpuMiningEngine({
-    prepareStart: () => calls.push("prepare"),
-    startReal: async () => calls.push("start-real"),
-    stopReal: async () => calls.push("stop-real"),
-    status: (kind) => ({
-      kind,
-      petState: "MINING_CPU",
-      running: true,
-      label: "MINING_CPU",
-    }),
+test("mining session status captures pet state for the dashboard", () => {
+  const status = createMiningSessionStatus("MINING_CPU", true, "CPU mining");
+  assert.deepEqual(status, {
+    petState: "MINING_CPU",
+    running: true,
+    label: "CPU mining",
   });
-
-  await engine.start();
-  await engine.stop();
-
-  assert.deepEqual(calls, ["prepare", "start-real", "stop-real"]);
-  assert.equal(engine.status().kind, "cpu");
 });
 
 test("runtime mining profile always uses the saved local CPU preset", () => {

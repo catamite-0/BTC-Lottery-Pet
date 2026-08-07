@@ -2,7 +2,7 @@ import type {
   BlockFoundEvent,
   MiningRuntimeEventPayload,
   RealMiningStats,
-} from "../miningLogic";
+} from "../contracts/mining";
 
 export type StructuredMiningEvent =
   | {

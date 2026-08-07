@@ -1,5 +1,5 @@
-import type { AppConfig } from "./miningLogic";
-import type { NotificationSettingsPayload } from "./contracts/notifications";
+import type { AppConfig } from "../contracts/config";
+import type { NotificationSettingsPayload } from "../contracts/notifications";
 
 export function notificationSettingsFromConfig(config: AppConfig): NotificationSettingsPayload {
   return {

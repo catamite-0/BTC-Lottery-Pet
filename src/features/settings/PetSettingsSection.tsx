@@ -1,5 +1,5 @@
-import type { RealMiningStats } from "../../miningLogic";
-import { formatDifficulty } from "../../miningLogic";
+import type { RealMiningStats } from "../../contracts/mining";
+import { formatDifficulty } from "../../domain/miningFormatters";
 import { derivePetCompanionSnapshot } from "../../pets/companion";
 import type { PetProfile } from "../../pets/profiles";
 import PetDisplay from "../pet/PetDisplay";

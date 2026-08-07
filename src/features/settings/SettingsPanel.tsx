@@ -3,7 +3,7 @@ import type {
   AppConfig,
   PerformancePreset,
   SystemInfo,
-} from "../../miningLogic";
+} from "../../contracts/config";
 import { getPetProfile } from "../../pets/profiles";
 import CpuSettingsSection from "./CpuSettingsSection";
 import NotificationSettingsSection from "./NotificationSettingsSection";

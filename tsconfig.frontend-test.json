@@ -7,5 +7,10 @@
     "outDir": ".test-dist",
     "rootDir": "src"
   },
-  "include": ["src/miningLogic.ts", "src/app/**/*.ts", "src/contracts/**/*.ts", "src/domain/**/*.ts", "src/engines/**/*.ts", "src/pets/**/*.ts"]
+  "include": [
+    "src/app/**/*.ts",
+    "src/contracts/**/*.ts",
+    "src/domain/**/*.ts",
+    "src/pets/**/*.ts"
+  ]
 }

@@ -29,16 +29,12 @@ import { useStartupState } from "./hooks/useStartupState";
 import { useMiningSessionControls } from "./hooks/useMiningSessionControls";
 import { useSettingsActions } from "./hooks/useSettingsActions";
 import { useWindowShellControls } from "./hooks/useWindowShellControls";
-import { notificationSettingsFromConfig } from "./notificationSettings";
+import { notificationSettingsFromConfig } from "./domain/notificationSettings";
 import { getPetProfile } from "./pets/profiles";
-import { threadsForPreset } from "./miningLogic";
-import type {
-  AppConfig,
-  PetStatus,
-  RealMiningStats,
-  RuntimeMiningProfile,
-  SystemInfo,
-} from "./miningLogic";
+import { threadsForPreset } from "./domain/appConfig";
+import type { AppConfig, SystemInfo } from "./contracts/config";
+import type { RealMiningStats, RuntimeMiningProfile } from "./contracts/mining";
+import type { PetStatus } from "./domain/petState";
 
 function useLatestRef<T>(val: T) {
   const ref = useRef(val);
@@ -231,8 +227,9 @@ function App() {
     appendPetLog,
   });
   const {
-    miningEngine,
-    miningEngineStatus,
+    startMining,
+    stopMining,
+    miningSessionStatus,
     startRealMiningConfirmed,
     runtimeMiningProfileForConfig,
     confirmCpuWarning,
@@ -273,7 +270,7 @@ function App() {
     config,
     systemInfo,
     activePetProfile,
-    miningEngineStatus,
+    miningSessionStatus,
     realStats,
     isMining,
     petState,
@@ -307,7 +304,8 @@ function App() {
       dashboardViewModel={dashboardViewModel}
       realStats={realStats}
       blockHeight={blockHeight}
-      miningEngine={miningEngine}
+      onStartMining={startMining}
+      onStopMining={stopMining}
       lastShare={lastShare}
       latestLog={latestLog}
       openLogs={openLogs}

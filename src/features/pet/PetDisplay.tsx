@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import type { PetStatus } from "../../domain/petState";
-import type { RealMiningStats } from "../../miningLogic";
+import type { RealMiningStats } from "../../contracts/mining";
 import type { PetCompanionSnapshot } from "../../pets/companion";
 import type { PetProfile } from "../../pets/profiles";
 

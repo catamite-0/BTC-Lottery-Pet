@@ -1,106 +1,13 @@
-import type { PetStatus } from "./domain/petState";
-import { normalizePetProfileId } from "./pets/profiles.js";
-
-export type { PetStatus } from "./domain/petState";
-export type PerformancePreset = "eco" | "normal" | "turbo" | "custom";
-
-export interface AppConfig {
-  btc_address: string;
-  pool_host: string;
-  pool_port: number;
-  pool_password: string;
-  worker_name: string;
-  cpu_threads: number;
-  performance_preset: PerformancePreset;
-  enable_notifications: boolean;
-  notify_on_jackpot: boolean;
-  notify_on_share_accepted: boolean;
-  notify_on_connection_error: boolean;
-  pet_profile_id: string;
-}
-
-export type AppConfigInput = AppConfig;
-
-export interface SystemInfo {
-  available_parallelism: number;
-  default_cpu_threads: number;
-  recommended_cpu_threads: number;
-}
-
-export interface RuntimeCapabilities {
-  availableCpuThreads: number;
-  recommendedCpuThreads: number;
-  signature: string;
-}
-
-export interface HardwareAdaptationResult {
-  config: AppConfig;
-  capabilities: RuntimeCapabilities;
-  changed: boolean;
-  messages: string[];
-}
-
-export interface RealMiningStats {
-  session_id: number;
-  hashrate: number;
-  accepted_shares: number;
-  rejected_shares: number;
-  stale_shares_dropped: number;
-  queued_shares_dropped: number;
-  best_difficulty: number;
-  share_difficulty: number;
-  current_job_id: string;
-  connection_status: string;
-}
-
-export interface BlockFoundEvent {
-  job_id: string;
-  nonce: string;
-  ntime: string;
-  extranonce2: string;
-  hash: string;
-  difficulty: number;
-  timestamp: string;
-  submission_status: "accepted" | "rejected" | "unknown";
-  submission_message: string | null;
-  pool: string;
-  record_saved: boolean;
-  record_file: string | null;
-}
-
-export type MiningRuntimeEventPayload =
-  | {
-      session_id: number;
-      type: "connection_status_changed";
-      status: string;
-      message: string;
-    }
-  | {
-      session_id: number;
-      type: "job_received";
-      job_id: string;
-      message: string;
-    }
-  | {
-      session_id: number;
-      type: "share_submitted" | "share_accepted" | "share_rejected";
-      message: string;
-    }
-  | {
-      session_id: number;
-      type: "block_candidate";
-      block: BlockFoundEvent;
-    };
-
-export interface MiningLogPayload {
-  session_id: number | null;
-  message: string;
-}
-
-export interface MiningBlockFoundPayload {
-  session_id: number;
-  block: BlockFoundEvent;
-}
+import type {
+  AppConfig,
+  AppConfigInput,
+  HardwareAdaptationResult,
+  PerformancePreset,
+  RuntimeCapabilities,
+  SystemInfo,
+} from "../contracts/config";
+import type { RuntimeMiningProfile } from "../contracts/mining";
+import { normalizePetProfileId } from "../pets/profiles.js";
 
 export function presetPort(poolHost: string, currentPort: number) {
   if (isKnownPoolHost(poolHost)) {
@@ -250,55 +157,6 @@ export function realMiningStartError(
   return null;
 }
 
-export function formatDifficulty(value: number) {
-  return value < 1_000
-    ? value.toFixed(4)
-    : Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
-}
-
-export function formatHashrate(hashrate: number) {
-  if (hashrate >= 1_000_000) {
-    return `${(hashrate / 1_000_000).toFixed(2)} MH/s`;
-  }
-
-  if (hashrate >= 1_000) {
-    return `${(hashrate / 1_000).toFixed(2)} KH/s`;
-  }
-
-  return `${hashrate.toFixed(0)} H/s`;
-}
-
-export function expectedSharesPerHour(hashrate: number, shareDifficulty: number) {
-  if (!Number.isFinite(hashrate) || !Number.isFinite(shareDifficulty)) {
-    return 0;
-  }
-  if (hashrate <= 0 || shareDifficulty <= 0) {
-    return 0;
-  }
-
-  return hashrate * 3600 / (shareDifficulty * 2 ** 32);
-}
-
-export function formatShareRate(sharesPerHour: number) {
-  if (!Number.isFinite(sharesPerHour) || sharesPerHour <= 0) {
-    return "Waiting";
-  }
-
-  if (sharesPerHour < 0.001) {
-    return "<0.001/h";
-  }
-
-  if (sharesPerHour < 1) {
-    return `${sharesPerHour.toFixed(3)}/h`;
-  }
-
-  if (sharesPerHour < 100) {
-    return `${sharesPerHour.toFixed(2)}/h`;
-  }
-
-  return `${Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(sharesPerHour)}/h`;
-}
-
 export function threadsForPreset(
   preset: PerformancePreset,
   systemInfo: SystemInfo,
@@ -320,9 +178,6 @@ export function threadsForPreset(
     case "custom":
       return Math.min(Math.max(1, customThreads), availableThreads);
   }
-}
-export interface RuntimeMiningProfile {
-  cpuThreads: number;
 }
 
 export function resolveRuntimeMiningProfile(

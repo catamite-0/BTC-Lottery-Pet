@@ -6,7 +6,7 @@ import {
   nextJackpotPhase,
   type JackpotSequenceSnapshot,
 } from "../domain/jackpotSequence";
-import type { BlockFoundEvent, RuntimeMiningProfile } from "../miningLogic";
+import type { BlockFoundEvent, RuntimeMiningProfile } from "../contracts/mining";
 
 interface UseJackpotFlowOptions {
   jackpotSequence: JackpotSequenceSnapshot;
@@ -54,7 +54,7 @@ export function useJackpotFlow({
 
     let cancelled = false;
     const resumeMining = async () => {
-      if (jackpotSequence.wasMining && jackpotSequence.engineKind) {
+      if (jackpotSequence.wasMining) {
         await startRealMiningConfirmedRef.current(runtimeMiningProfileForConfigRef.current());
       }
 
@@ -72,7 +72,6 @@ export function useJackpotFlow({
       cancelled = true;
     };
   }, [
-    jackpotSequence.engineKind,
     jackpotSequence.id,
     jackpotSequence.phase,
     jackpotSequence.wasMining,

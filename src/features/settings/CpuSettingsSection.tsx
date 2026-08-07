@@ -3,7 +3,7 @@ import type {
   AppConfig,
   PerformancePreset,
   SystemInfo,
-} from "../../miningLogic";
+} from "../../contracts/config";
 
 interface CpuSettingsSectionProps {
   draftConfig: AppConfig;

@@ -1,6 +1,6 @@
 import { jackpotPhaseLabel } from "../../domain/jackpotSequence";
 import type { JackpotSequenceSnapshot } from "../../domain/jackpotSequence";
-import type { BlockFoundEvent } from "../../miningLogic";
+import type { BlockFoundEvent } from "../../contracts/mining";
 
 interface JackpotDialogProps {
   jackpotSequence: JackpotSequenceSnapshot;

@@ -5,17 +5,16 @@ import {
   type ProbabilitySnapshot,
 } from "../domain/probabilityEngine.js";
 import { isAnimatedMiningState, type PetState, type PetStatus } from "../domain/petState.js";
-import type { MiningEngineStatus } from "../engines/miningEngine.js";
-import { formatUptime } from "../formatting.js";
+import type { MiningSessionStatus } from "../domain/miningSession.js";
+import type { AppConfig, SystemInfo } from "../contracts/config.js";
+import type { RealMiningStats } from "../contracts/mining.js";
+import { formatUptime } from "../domain/formatting.js";
 import {
   expectedSharesPerHour,
   formatDifficulty,
   formatHashrate,
   formatShareRate,
-  type AppConfig,
-  type RealMiningStats,
-  type SystemInfo,
-} from "../miningLogic.js";
+} from "../domain/miningFormatters.js";
 import { derivePetCompanionSnapshot, type PetCompanionSnapshot } from "../pets/companion.js";
 import type { PetProfile } from "../pets/profiles.js";
 
@@ -25,7 +24,7 @@ export interface MiningDashboardViewModelInput {
   config: AppConfig;
   systemInfo: SystemInfo;
   activePetProfile: PetProfile;
-  miningEngineStatus: MiningEngineStatus;
+  miningSessionStatus: MiningSessionStatus;
   realStats: RealMiningStats;
   isMining: boolean;
   petState: PetState;
@@ -120,10 +119,10 @@ export function createMiningDashboardViewModel(input: MiningDashboardViewModelIn
   const currentModeLabel = "CPU";
 
   const resourceMetrics: MetricRow[] = [
-    ["ENGINE", input.miningEngineStatus.kind.toUpperCase()],
+    ["ENGINE", "CPU"],
     ["PET", petCompanion.name],
     ["MOOD", petCompanion.moodLabel],
-    ["PET STATE", input.miningEngineStatus.label],
+    ["PET STATE", input.miningSessionStatus.label],
     ["BOND", `${petCompanion.care.bond.value}%`],
     ["EVENT", miningEventLabel(input.lastMiningEvent)],
     ["PET LOGS", `${input.petLogsCount}`],

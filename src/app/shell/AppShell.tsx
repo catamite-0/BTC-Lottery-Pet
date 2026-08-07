@@ -10,19 +10,11 @@ import SettingsPanel from "../../features/settings/SettingsPanel";
 import type { MiningDashboardViewModel } from "../miningDashboardViewModel";
 import type { JackpotSequenceSnapshot } from "../../domain/jackpotSequence";
 import type { PetState, PetStatus } from "../../domain/petState";
-import type { MiningEngine } from "../../engines/miningEngine";
 import type { PetProfile } from "../../pets/profiles";
-import {
-  formatDifficulty,
-  presetPort,
-  threadsForPreset,
-} from "../../miningLogic";
-import type {
-  AppConfig,
-  BlockFoundEvent,
-  RealMiningStats,
-  SystemInfo,
-} from "../../miningLogic";
+import type { AppConfig, SystemInfo } from "../../contracts/config";
+import type { BlockFoundEvent, RealMiningStats } from "../../contracts/mining";
+import { presetPort, threadsForPreset } from "../../domain/appConfig";
+import { formatDifficulty } from "../../domain/miningFormatters";
 
 interface AppShellProps {
   displayMode: "compact" | "detail";
@@ -40,7 +32,8 @@ interface AppShellProps {
   dashboardViewModel: MiningDashboardViewModel;
   realStats: RealMiningStats;
   blockHeight: string;
-  miningEngine: MiningEngine;
+  onStartMining: () => Promise<void>;
+  onStopMining: () => Promise<void>;
   lastShare: string;
   latestLog: string;
   openLogs: () => Promise<void>;
@@ -79,7 +72,8 @@ export default function AppShell({
   dashboardViewModel,
   realStats,
   blockHeight,
-  miningEngine,
+  onStartMining,
+  onStopMining,
   lastShare,
   latestLog,
   openLogs,
@@ -157,7 +151,7 @@ export default function AppShell({
     <button
       className={isMining ? "control-button stop" : "control-button start"}
       disabled={isCoolingDown || miningControlPending}
-      onClick={isMining ? miningEngine.stop : miningEngine.start}
+      onClick={isMining ? onStopMining : onStartMining}
       title={miningControlPending ? "Mining command is still running" : undefined}
       type="button"
     >

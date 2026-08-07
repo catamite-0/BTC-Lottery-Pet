@@ -1,8 +1,8 @@
 import type {
   AppConfig,
-  RealMiningStats,
   SystemInfo,
-} from "../miningLogic";
+} from "../contracts/config";
+import type { RealMiningStats } from "../contracts/mining";
 import { isDesktopRuntime } from "../platform/tauri/runtimeClient";
 
 export const fallbackConfig: AppConfig = {

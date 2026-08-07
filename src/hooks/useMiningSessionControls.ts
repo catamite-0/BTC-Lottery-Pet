@@ -1,18 +1,15 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { startRealMining, stopRealMining } from "../platform/tauri/miningClient";
-import { useMiningEngineController } from "./useMiningEngineController";
 import type { MiningEvent } from "../domain/miningEvents";
 import { petStateLabel, type PetState } from "../domain/petState";
-import type { MiningEngineKind } from "../engines/miningEngine";
-import { formatError } from "../formatting";
+import { createMiningSessionStatus } from "../domain/miningSession";
+import { formatError } from "../domain/formatting";
+import type { AppConfig, SystemInfo } from "../contracts/config";
+import type { RealMiningStats, RuntimeMiningProfile } from "../contracts/mining";
 import {
   realMiningStartError,
   resolveRuntimeMiningProfile,
-  type AppConfig,
-  type RealMiningStats,
-  type RuntimeMiningProfile,
-  type SystemInfo,
-} from "../miningLogic";
+} from "../domain/appConfig";
 
 interface LatestRef<T> {
   current: T;
@@ -123,6 +120,8 @@ export function useMiningSessionControls({
   const runtimeMiningProfileForConfig = () => resolveRuntimeMiningProfile(config, systemInfo);
 
   const startRealMiningSession = async () => {
+    prepareMiningStart();
+
     const startError = realMiningStartError(config);
     if (startError) {
       setErrorMessage(startError);
@@ -147,6 +146,8 @@ export function useMiningSessionControls({
 
   const confirmCpuWarning = async () => {
     setShowCpuWarning(false);
+    prepareMiningStart();
+    appendPetLog("I am listening for pool work.");
     await startRealMiningConfirmed(runtimeMiningProfileForConfig());
   };
 
@@ -190,23 +191,14 @@ export function useMiningSessionControls({
     }
   };
 
-  const miningEngine = useMiningEngineController({
-    lifecycle: {
-      prepareStart: prepareMiningStart,
-      startReal: startRealMiningSession,
-      stopReal: stopRealMiningSession,
-      status: (kind: MiningEngineKind) => ({
-        kind,
-        petState,
-        running: isMining,
-        label: petStateLabel(petState),
-      }),
-    },
-  });
-
   return {
-    miningEngine,
-    miningEngineStatus: miningEngine.status(),
+    startMining: startRealMiningSession,
+    stopMining: stopRealMiningSession,
+    miningSessionStatus: createMiningSessionStatus(
+      petState,
+      isMining,
+      petStateLabel(petState),
+    ),
     startRealMiningConfirmed,
     runtimeMiningProfileForConfig,
     confirmCpuWarning,

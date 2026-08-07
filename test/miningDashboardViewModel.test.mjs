@@ -51,8 +51,7 @@ test("mining dashboard view model keeps idle CPU display values compact", () => 
     config,
     systemInfo,
     activePetProfile: getPetProfile(DEFAULT_PET_PROFILE_ID),
-    miningEngineStatus: {
-      kind: "cpu",
+    miningSessionStatus: {
       petState: "IDLE",
       running: false,
       label: "IDLE",
@@ -105,8 +104,7 @@ test("mining dashboard view model exposes CPU real mining resource status", () =
     config,
     systemInfo,
     activePetProfile: getPetProfile(DEFAULT_PET_PROFILE_ID),
-    miningEngineStatus: {
-      kind: "cpu",
+    miningSessionStatus: {
       petState: "MINING_CPU",
       running: true,
       label: "CPU mining",

@@ -1,11 +1,8 @@
 import { useEffect, type Dispatch, type SetStateAction } from "react";
 import { getConfig, getSystemInfo } from "../platform/tauri/configClient";
-import { formatError } from "../formatting";
-import {
-  adaptConfigForHardware,
-  type AppConfig,
-  type SystemInfo,
-} from "../miningLogic";
+import { formatError } from "../domain/formatting";
+import type { AppConfig, SystemInfo } from "../contracts/config";
+import { adaptConfigForHardware } from "../domain/appConfig";
 
 interface UseStartupStateOptions {
   runningInTauri: boolean;

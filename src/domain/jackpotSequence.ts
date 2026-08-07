@@ -1,5 +1,4 @@
-import type { BlockFoundEvent } from "../miningLogic";
-import type { MiningEngineKind } from "../engines/miningEngine";
+import type { BlockFoundEvent } from "../contracts/mining";
 
 export type JackpotSequencePhase =
   | "idle"
@@ -17,7 +16,6 @@ export interface JackpotSequenceSnapshot {
   block: BlockFoundEvent | null;
   startedAt: number | null;
   wasMining: boolean;
-  engineKind: MiningEngineKind | null;
 }
 
 export const idleJackpotSequence: JackpotSequenceSnapshot = {
@@ -26,13 +24,11 @@ export const idleJackpotSequence: JackpotSequenceSnapshot = {
   block: null,
   startedAt: null,
   wasMining: false,
-  engineKind: null,
 };
 
 export function startJackpotSequence(
   block: BlockFoundEvent,
   wasMining: boolean,
-  engineKind: MiningEngineKind,
 ): JackpotSequenceSnapshot {
   return {
     id: `jackpot-${block.timestamp}-${block.job_id}`,
@@ -40,7 +36,6 @@ export function startJackpotSequence(
     block,
     startedAt: Date.now(),
     wasMining,
-    engineKind,
   };
 }
 

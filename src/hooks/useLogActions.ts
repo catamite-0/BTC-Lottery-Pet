@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import { formatError } from "../formatting";
+import { formatError } from "../domain/formatting";
 import { getLogPath, openLogFolder } from "../platform/tauri/logClient";
 
 interface UseLogActionsOptions {

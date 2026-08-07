@@ -1,12 +1,9 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { DevLogEntry } from "../domain/miningLogs";
-import { formatError } from "../formatting";
+import { formatError } from "../domain/formatting";
 import { saveConfig } from "../platform/tauri/configClient";
-import {
-  adaptConfigForHardware,
-  type AppConfig,
-  type SystemInfo,
-} from "../miningLogic";
+import type { AppConfig, SystemInfo } from "../contracts/config";
+import { adaptConfigForHardware } from "../domain/appConfig";
 
 interface UseSettingsActionsOptions {
   runningInTauri: boolean;

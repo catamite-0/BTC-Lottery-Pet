@@ -63,3 +63,45 @@ pub(crate) fn sanitize_protocol_event(event: ProtocolEvent, secrets: [&str; 3]) 
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{sanitize_pool_text, MAX_POOL_TEXT_CHARS};
+
+    #[test]
+    fn sanitizes_pool_text_before_logging_or_emitting_it() {
+        let username = "wallet.worker";
+        let address = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa";
+        let password = "secret-password";
+        let message = format!(
+            "pool error\r\nuser={username} address={address} password={password} {}",
+            "x".repeat(MAX_POOL_TEXT_CHARS + 100)
+        );
+
+        let sanitized = sanitize_pool_text(&message, [username, address, password]);
+
+        assert!(!sanitized.contains('\r'));
+        assert!(!sanitized.contains('\n'));
+        assert!(!sanitized.contains(username));
+        assert!(!sanitized.contains(address));
+        assert!(!sanitized.contains(password));
+        assert_eq!(sanitized.matches("[redacted]").count(), 3);
+        assert!(sanitized.ends_with('…'));
+        assert!(sanitized.chars().count() <= MAX_POOL_TEXT_CHARS + 1);
+    }
+
+    #[test]
+    fn sanitizes_non_empty_short_pool_password_without_redacting_short_identity_fields() {
+        let username = "u";
+        let address = "a";
+        let password = "x";
+        let message = "user=u address=a password=x";
+
+        let sanitized = sanitize_pool_text(message, [username, address, password]);
+
+        assert!(sanitized.contains("user=u"));
+        assert!(sanitized.contains("address=a"));
+        assert!(!sanitized.contains("password=x"));
+        assert!(sanitized.contains("password=[redacted]"));
+    }
+}

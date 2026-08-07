@@ -1,9 +1,5 @@
 pub(crate) use btc_hash_core::HeaderWork;
 pub(crate) use btc_hash_cpu::{difficulty_from_hash, double_sha256};
-#[cfg(test)]
-pub(crate) use btc_hash_cpu::{
-    hash_meets_network_target, header_work_from_header, target_from_nbits, DIFF_ONE_TARGET,
-};
 
 use crate::mining_settings::{CandidateSubmissionStatus, FoundBlockEvent};
 use crate::mining_state::JobTemplate;
@@ -182,5 +178,192 @@ pub(crate) fn found_block_event(
         pool: pool.to_owned(),
         record_saved: false,
         record_file: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::mining_state::JobTemplate;
+    use btc_hash_cpu::{
+        difficulty_from_hash, hash_meets_network_target, header_work_from_header, target_from_nbits,
+    };
+
+    use super::{
+        build_header, build_header_work, build_header_work_template, double_sha256,
+        extranonce2_hex, found_block_event, word_swapped_hex,
+    };
+
+    #[test]
+    fn formats_extranonce2_to_pool_width() {
+        assert_eq!(extranonce2_hex(1, 4), "00000001");
+        assert_eq!(extranonce2_hex(0x1234, 2), "1234");
+    }
+
+    #[test]
+    fn swaps_previous_hash_words_like_nerdminer() {
+        assert_eq!(
+            word_swapped_hex("11223344aabbccdd").unwrap(),
+            vec![0x44, 0x33, 0x22, 0x11, 0xdd, 0xcc, 0xbb, 0xaa]
+        );
+    }
+
+    #[test]
+    fn zero_hash_has_maximum_reported_difficulty() {
+        assert!(difficulty_from_hash(&[0; 32]).is_finite());
+    }
+
+    #[test]
+    fn expands_compact_nbits_to_network_target() {
+        let target = target_from_nbits("1d00ffff").unwrap();
+
+        assert_eq!(
+            hex::encode(target),
+            "00000000ffff0000000000000000000000000000000000000000000000000000"
+        );
+    }
+
+    #[test]
+    fn compares_hashes_against_network_target() {
+        let target = target_from_nbits("1d00ffff").unwrap();
+
+        assert!(hash_meets_network_target(&[0; 32], &target));
+        assert!(!hash_meets_network_target(&[0xff; 32], &target));
+    }
+
+    #[test]
+    fn header_work_midstate_matches_full_header_hashing() {
+        let job = JobTemplate {
+            generation: 1,
+            clean_jobs: true,
+            job_id: "job-midstate".into(),
+            prev_hash: "00".repeat(32),
+            coinbase1: "01000000".into(),
+            coinbase2: "ffffffff".into(),
+            merkle_branches: vec!["11".repeat(32), "22".repeat(32)],
+            version: "20000000".into(),
+            nbits: "1d00ffff".into(),
+            network_target: target_from_nbits("1d00ffff").unwrap(),
+            ntime: "5f5e1000".into(),
+            extranonce1: "abcd".into(),
+            extranonce2_size: 4,
+            share_difficulty: 1.0,
+        };
+        let extranonce2 = extranonce2_hex(1, job.extranonce2_size);
+        let header = build_header(&job, &extranonce2).unwrap();
+        let work = build_header_work(&job, &extranonce2).unwrap();
+
+        assert_eq!(header.len(), 80);
+        assert_eq!(
+            work.tail[0],
+            u32::from_le_bytes(header[64..68].try_into().unwrap())
+        );
+        assert_eq!(
+            work.tail[1],
+            u32::from_le_bytes(header[68..72].try_into().unwrap())
+        );
+        assert_eq!(
+            work.tail[2],
+            u32::from_le_bytes(header[72..76].try_into().unwrap())
+        );
+
+        for nonce in [0, 1, 0x1234abcd, u32::MAX] {
+            let mut candidate = header.clone();
+            candidate[76..80].copy_from_slice(&nonce.to_le_bytes());
+            assert_eq!(
+                crate::mining_kernel::double_sha256_from_midstate(
+                    &work.midstate,
+                    &work.tail,
+                    nonce
+                ),
+                double_sha256(&candidate),
+            );
+        }
+    }
+
+    #[test]
+    fn header_work_template_reuses_midstate_when_only_ntime_changes() {
+        let job = JobTemplate {
+            generation: 1,
+            clean_jobs: true,
+            job_id: "job-midstate-template".into(),
+            prev_hash: "00".repeat(32),
+            coinbase1: "01000000".into(),
+            coinbase2: "ffffffff".into(),
+            merkle_branches: vec!["11".repeat(32), "22".repeat(32)],
+            version: "20000000".into(),
+            nbits: "1d00ffff".into(),
+            network_target: target_from_nbits("1d00ffff").unwrap(),
+            ntime: "5f5e1000".into(),
+            extranonce1: "abcd".into(),
+            extranonce2_size: 4,
+            share_difficulty: 1.0,
+        };
+        let extranonce2 = extranonce2_hex(1, job.extranonce2_size);
+        let template = build_header_work_template(&job, &extranonce2).unwrap();
+        let first_work = template.work_for_ntime(&job.ntime).unwrap();
+
+        let mut next_job = job.clone();
+        next_job.ntime = "5f5e1010".into();
+        let next_work = template.work_for_ntime(&next_job.ntime).unwrap();
+        let rebuilt_next_work = build_header_work(&next_job, &extranonce2).unwrap();
+
+        assert_eq!(first_work.midstate, next_work.midstate);
+        assert_ne!(first_work.tail[1], next_work.tail[1]);
+        assert_eq!(next_work, rebuilt_next_work);
+
+        let next_header = build_header(&next_job, &extranonce2).unwrap();
+        for nonce in [0, 1, 0x1234abcd, u32::MAX] {
+            let mut candidate = next_header.clone();
+            candidate[76..80].copy_from_slice(&nonce.to_le_bytes());
+            assert_eq!(
+                crate::mining_kernel::double_sha256_from_midstate(
+                    &next_work.midstate,
+                    &next_work.tail,
+                    nonce,
+                ),
+                double_sha256(&candidate),
+            );
+        }
+    }
+
+    #[test]
+    fn header_work_rejects_invalid_header_width() {
+        let error = header_work_from_header(&[0; 79]).unwrap_err();
+        assert!(error.contains("80-byte block header"));
+    }
+
+    #[test]
+    fn found_block_event_uses_pool_metadata_without_address() {
+        let job = JobTemplate {
+            generation: 1,
+            clean_jobs: true,
+            job_id: "job-7".into(),
+            prev_hash: String::new(),
+            coinbase1: String::new(),
+            coinbase2: String::new(),
+            merkle_branches: Vec::new(),
+            version: "20000000".into(),
+            nbits: "1d00ffff".into(),
+            network_target: target_from_nbits("1d00ffff").unwrap(),
+            ntime: "5f5e1000".into(),
+            extranonce1: "abcd".into(),
+            extranonce2_size: 4,
+            share_difficulty: 1.0,
+        };
+
+        let event = found_block_event(
+            &job,
+            0x1234abcd,
+            "00000001",
+            &[0; 32],
+            42.0,
+            "public-pool.io:3333",
+        );
+        let serialized = serde_json::to_string(&event).unwrap();
+
+        assert_eq!(event.job_id, "job-7");
+        assert_eq!(event.nonce, "1234abcd");
+        assert!(serialized.contains("public-pool.io:3333"));
+        assert!(!serialized.contains("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"));
     }
 }

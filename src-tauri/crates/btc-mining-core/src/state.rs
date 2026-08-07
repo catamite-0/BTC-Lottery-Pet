@@ -397,3 +397,206 @@ pub fn should_submit_share(shared: &SharedMiningState, share: &ShareSubmission) 
     shared.record_stale_share_drops(1);
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
+        time::{Duration, Instant},
+    };
+
+    use btc_hash_cpu::target_from_nbits;
+
+    use super::{
+        share_matches_current_job, share_matches_valid_previous_job, should_submit_share,
+        JobTemplate, PendingShareSubmissions, ShareSubmission, SharedMiningState,
+    };
+
+    const PENDING_SHARE_TIMEOUT: Duration = Duration::from_secs(30);
+
+    fn pending_share(job_id: &str, nonce: u32) -> ShareSubmission {
+        ShareSubmission {
+            generation: 1,
+            job_id: job_id.into(),
+            extranonce2: "00000001".into(),
+            ntime: "5f5e1000".into(),
+            nonce,
+        }
+    }
+
+    fn validity_test_job(job_id: &str, prev_hash: &str, clean_jobs: bool) -> JobTemplate {
+        JobTemplate {
+            generation: 0,
+            clean_jobs,
+            job_id: job_id.to_owned(),
+            prev_hash: prev_hash.to_owned(),
+            coinbase1: String::new(),
+            coinbase2: String::new(),
+            merkle_branches: Vec::new(),
+            version: "20000000".into(),
+            nbits: "1d00ffff".into(),
+            network_target: target_from_nbits("1d00ffff").unwrap(),
+            ntime: "5f5e1000".into(),
+            extranonce1: "abcd".into(),
+            extranonce2_size: 4,
+            share_difficulty: 1.0,
+        }
+    }
+
+    fn share_for_job(job: &JobTemplate) -> ShareSubmission {
+        ShareSubmission {
+            generation: job.generation,
+            job_id: job.job_id.clone(),
+            extranonce2: "00000001".into(),
+            ntime: job.ntime.clone(),
+            nonce: 0,
+        }
+    }
+
+    #[test]
+    fn stale_share_submissions_do_not_match_current_job() {
+        let shared = SharedMiningState::new(Arc::new(AtomicBool::new(false)));
+        let base_job = JobTemplate {
+            generation: 0,
+            clean_jobs: true,
+            job_id: "job-1".into(),
+            prev_hash: String::new(),
+            coinbase1: String::new(),
+            coinbase2: String::new(),
+            merkle_branches: Vec::new(),
+            version: "20000000".into(),
+            nbits: "1d00ffff".into(),
+            network_target: target_from_nbits("1d00ffff").unwrap(),
+            ntime: "5f5e1000".into(),
+            extranonce1: "abcd".into(),
+            extranonce2_size: 4,
+            share_difficulty: 1.0,
+        };
+
+        shared.set_job(base_job.clone());
+        let active_job = shared.job.read().unwrap().as_ref().unwrap().clone();
+        let active_share = ShareSubmission {
+            generation: active_job.generation,
+            job_id: active_job.job_id.clone(),
+            extranonce2: "00000001".into(),
+            ntime: active_job.ntime.clone(),
+            nonce: 0,
+        };
+
+        assert!(share_matches_current_job(&shared, &active_share));
+        assert!(should_submit_share(&shared, &active_share));
+        assert_eq!(shared.stale_shares_dropped.load(Ordering::Relaxed), 0);
+
+        let stale_generation = ShareSubmission {
+            generation: active_job.generation.saturating_sub(1),
+            ..active_share.clone()
+        };
+
+        assert!(!share_matches_current_job(&shared, &stale_generation));
+        assert!(!should_submit_share(&shared, &stale_generation));
+        assert_eq!(shared.stale_shares_dropped.load(Ordering::Relaxed), 1);
+
+        let mut next_job = base_job;
+        next_job.job_id = "job-2".into();
+        shared.set_job(next_job);
+
+        assert!(!share_matches_current_job(&shared, &active_share));
+        assert!(!should_submit_share(&shared, &active_share));
+        assert_eq!(shared.stale_shares_dropped.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn previous_job_share_remains_valid_when_clean_jobs_is_false() {
+        let shared = SharedMiningState::new(Arc::new(AtomicBool::new(false)));
+        let prev_hash = "00".repeat(32);
+        shared.set_job(validity_test_job("job-1", &prev_hash, true));
+        let active_job = shared.job.read().unwrap().as_ref().unwrap().clone();
+        let active_share = share_for_job(&active_job);
+
+        shared.set_job(validity_test_job("job-2", &prev_hash, false));
+
+        assert!(!share_matches_current_job(&shared, &active_share));
+        assert!(share_matches_valid_previous_job(&shared, &active_share));
+        assert!(should_submit_share(&shared, &active_share));
+        assert_eq!(shared.stale_shares_dropped.load(Ordering::Relaxed), 0);
+        assert_eq!(shared.valid_previous_jobs.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn previous_job_share_is_stale_when_prev_hash_changes() {
+        let shared = SharedMiningState::new(Arc::new(AtomicBool::new(false)));
+        shared.set_job(validity_test_job("job-1", &"00".repeat(32), true));
+        let active_job = shared.job.read().unwrap().as_ref().unwrap().clone();
+        let active_share = share_for_job(&active_job);
+
+        shared.set_job(validity_test_job("job-2", &"11".repeat(32), false));
+
+        assert!(!share_matches_valid_previous_job(&shared, &active_share));
+        assert!(!should_submit_share(&shared, &active_share));
+        assert_eq!(shared.stale_shares_dropped.load(Ordering::Relaxed), 1);
+        assert!(shared.valid_previous_jobs.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn previous_job_share_expires_after_grace_window() {
+        let shared = SharedMiningState::new(Arc::new(AtomicBool::new(false)));
+        let prev_hash = "00".repeat(32);
+        shared.set_job(validity_test_job("job-1", &prev_hash, true));
+        let active_job = shared.job.read().unwrap().as_ref().unwrap().clone();
+        let active_share = share_for_job(&active_job);
+        shared.set_job(validity_test_job("job-2", &prev_hash, false));
+
+        {
+            let mut valid_previous_jobs = shared.valid_previous_jobs.lock().unwrap();
+            assert_eq!(valid_previous_jobs.len(), 1);
+            valid_previous_jobs[0].expires_at = Instant::now()
+                .checked_sub(Duration::from_secs(1))
+                .unwrap_or_else(Instant::now);
+        }
+
+        assert!(!share_matches_valid_previous_job(&shared, &active_share));
+        assert!(shared.valid_previous_jobs.lock().unwrap().is_empty());
+        assert!(!should_submit_share(&shared, &active_share));
+        assert_eq!(shared.stale_shares_dropped.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn queued_share_drops_are_counted_in_stats_snapshot() {
+        let shared = SharedMiningState::new(Arc::new(AtomicBool::new(false)));
+        assert_eq!(shared.snapshot(7, 0.0).session_id, 7);
+        assert_eq!(shared.snapshot(7, 0.0).queued_shares_dropped, 0);
+
+        shared.record_queued_share_drop();
+        shared.record_queued_share_drop();
+
+        assert_eq!(shared.queued_shares_dropped.load(Ordering::Relaxed), 2);
+        assert_eq!(shared.snapshot(7, 123.0).queued_shares_dropped, 2);
+    }
+
+    #[test]
+    fn pending_share_submissions_expire_by_age() {
+        let mut pending = PendingShareSubmissions::default();
+        let now = Instant::now();
+        pending.insert(
+            11,
+            pending_share("job-old", 0),
+            now.checked_sub(PENDING_SHARE_TIMEOUT + Duration::from_secs(1))
+                .unwrap_or(now),
+        );
+        pending.insert(
+            12,
+            pending_share("job-new", 1),
+            now.checked_sub(Duration::from_secs(1)).unwrap_or(now),
+        );
+
+        let expired = pending.prune_expired(now, PENDING_SHARE_TIMEOUT);
+
+        assert_eq!(expired.len(), 1);
+        assert_eq!(expired[0].request_id, 11);
+        assert!(!pending.contains_id(11));
+        assert!(pending.contains_id(12));
+    }
+}

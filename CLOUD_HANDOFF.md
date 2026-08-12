@@ -8,9 +8,9 @@ Prepared on 2026-07-31 for the next cloud development session.
 - The application version is `0.9.0`, but `CHANGELOG.md` is still marked
   `Unreleased`. This is a release candidate, not a public release.
 - The stability/cloud baseline was merged in
-  [PR #4](https://github.com/catamitez0-maker/BTC-Lottery-Pet/pull/4).
+  [PR #4](https://github.com/catamite-0/BTC-Lottery-Pet/pull/4).
 - The fail-closed Authenticode release baseline was merged in
-  [PR #12](https://github.com/catamitez0-maker/BTC-Lottery-Pet/pull/12)
+  [PR #12](https://github.com/catamite-0/BTC-Lottery-Pet/pull/12)
   as `093eb3fd51690eec4e3d25b1fe40c5ae94bbe78b`.
 
 Use the latest `main`, not an old local branch, prototype, installer, or
@@ -151,11 +151,11 @@ See `docs/cloud-development.md` and
 Handle these as separate, reviewable pull requests:
 
 1. Refresh and validate
-   [PR #10](https://github.com/catamitez0-maker/BTC-Lottery-Pet/pull/10),
+   [PR #10](https://github.com/catamite-0/BTC-Lottery-Pet/pull/10),
    which updates the development/build dependency PostCSS. Merge only after it
    is current with `main` and all gates pass.
 2. Refresh and validate
-   [PR #11](https://github.com/catamitez0-maker/BTC-Lottery-Pet/pull/11),
+   [PR #11](https://github.com/catamite-0/BTC-Lottery-Pet/pull/11),
    which updates the Tauri-transitive `serde_with`. Merge separately after all
    gates pass.
 3. Replace direct dependency `winrt-notification 0.5.1` before any signed

@@ -15,7 +15,6 @@ interface PetDisplayProps {
   compactRuntimeLabel: string;
   displayedHashrate: string;
   realStats: RealMiningStats;
-  blockHeight: string;
   formatDifficulty: (value: number) => string;
 }
 
@@ -70,7 +69,6 @@ export default function PetDisplay({
   compactRuntimeLabel,
   displayedHashrate,
   realStats,
-  blockHeight,
   formatDifficulty,
 }: PetDisplayProps) {
   const appearance = petProfile.states[petStatus];
@@ -191,7 +189,7 @@ export default function PetDisplay({
       {displayMode === "compact" && (
         <div
           className="mini-stats-line"
-          title={`Best difficulty ${formatDifficulty(realStats.best_difficulty)} / block ${blockHeight}`}
+          title={`Best difficulty ${formatDifficulty(realStats.best_difficulty)}`}
         >
           <span>{compactRuntimeLabel} {displayedHashrate}</span>
         </div>

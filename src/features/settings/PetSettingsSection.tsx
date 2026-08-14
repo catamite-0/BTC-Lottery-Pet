@@ -55,7 +55,6 @@ function PetProfileDisplay({
       compactRuntimeLabel="CPU"
       displayedHashrate="Preview"
       realStats={previewStats}
-      blockHeight=""
       formatDifficulty={formatDifficulty}
     />
   );

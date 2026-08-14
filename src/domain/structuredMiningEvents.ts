@@ -30,7 +30,6 @@ export interface StructuredMiningEventState {
   lastShare: string | null;
   shareEventType: "share_accepted" | "share_rejected" | null;
   connectionErrorStatus: string | null;
-  jackpotPauseRequested: boolean;
   blockCandidate: BlockFoundEvent | null;
   petLogMessage: string | null;
 }
@@ -48,7 +47,6 @@ export function createStructuredMiningEventState(
     lastShare: null,
     shareEventType: null,
     connectionErrorStatus: null,
-    jackpotPauseRequested: false,
     blockCandidate: null,
     petLogMessage: null,
   };
@@ -139,8 +137,6 @@ export function reduceStructuredMiningEvent(
     case "block_candidate":
       return {
         ...state,
-        connectionStatus: "Jackpot pause",
-        jackpotPauseRequested: true,
         blockCandidate: event.block,
       };
   }

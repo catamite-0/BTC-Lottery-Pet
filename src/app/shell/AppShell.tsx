@@ -50,7 +50,6 @@ export default function AppShell({
       compactRuntimeLabel={compactRuntimeLabel}
       displayedHashrate={displayedHashrate}
       realStats={mining.realStats}
-      blockHeight={mining.blockHeight}
       formatDifficulty={formatDifficulty}
     />
   );

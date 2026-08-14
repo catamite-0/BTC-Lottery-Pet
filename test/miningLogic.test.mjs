@@ -29,6 +29,7 @@ import {
   formatProbabilityTime,
 } from "../.test-dist/domain/probabilityEngine.js";
 import {
+  jackpotPhaseDurationMs,
   nextJackpotPhase,
   startJackpotSequence,
 } from "../.test-dist/domain/jackpotSequence.js";
@@ -459,6 +460,8 @@ test("jackpot sequence advances through the required presentation phases", () =>
   assert.equal(nextJackpotPhase("screen_effect"), "particles");
   assert.equal(nextJackpotPhase("particles"), "reveal");
   assert.equal(nextJackpotPhase("reveal"), "resume");
+  assert.equal(nextJackpotPhase("resume"), "complete");
+  assert.equal(jackpotPhaseDurationMs("resume"), 400);
 });
 
 test("mining session status captures pet state for the dashboard", () => {

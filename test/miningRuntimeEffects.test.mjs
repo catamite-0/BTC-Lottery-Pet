@@ -90,9 +90,8 @@ test("runtime effects emit block candidate and jackpot through one patch", () =>
     { wasMining: true, stats: baseStats },
   );
 
-  assert.equal(effects.jackpotPauseRequested, true);
   assert.equal(effects.notifyJackpot, true);
-  assert.equal(effects.connectionStatus, "Jackpot pause");
+  assert.equal(effects.connectionStatus, "Mining");
   assert.deepEqual(effects.blockCandidate, blockCandidate);
   assert.equal(effects.uiEvents.map((event) => event.type).join(","), "block_candidate,jackpot");
   assert.deepEqual(effects.petLogMessages, [
@@ -102,7 +101,7 @@ test("runtime effects emit block candidate and jackpot through one patch", () =>
   assert.match(effects.devLogMessage, /Block candidate found/);
 });
 
-test("runtime effects do not pause mining for idle block candidates", () => {
+test("runtime effects keep an idle block candidate visual-only", () => {
   const effects = effectsFromRuntimePayload(
     {
       session_id: 7,
@@ -112,7 +111,7 @@ test("runtime effects do not pause mining for idle block candidates", () => {
     { wasMining: false, stats: { ...baseStats, connection_status: "Stopped" } },
   );
 
-  assert.equal(effects.jackpotPauseRequested, false);
   assert.equal(effects.notifyJackpot, true);
+  assert.equal(effects.connectionStatus, "Stopped");
   assert.equal(effects.uiEvents.length, 2);
 });

@@ -68,7 +68,6 @@ test("mining dashboard view model keeps idle CPU display values compact", () => 
     effectiveCpuThreads: 1,
     miningUptime: 0,
     appUptime: 300,
-    blockHeight: "900000",
     petLogsCount: 0,
     devLogsCount: 0,
   });
@@ -121,7 +120,6 @@ test("mining dashboard view model exposes CPU real mining resource status", () =
     effectiveCpuThreads: 4,
     miningUptime: 60,
     appUptime: 600,
-    blockHeight: "900001",
     petLogsCount: 1,
     devLogsCount: 2,
   });

@@ -22,6 +22,12 @@ body,
   overflow: hidden;
 }
 
+html.pet-window-hidden *,
+html.pet-window-hidden *::before,
+html.pet-window-hidden *::after {
+  animation-play-state: paused !important;
+}
+
 button {
   border: 0;
   color: inherit;

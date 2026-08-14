@@ -23,7 +23,6 @@ export interface MiningRuntimeEffects {
   lastShare: string | null;
   petLogMessages: string[];
   uiEvents: MiningEvent[];
-  jackpotPauseRequested: boolean;
   blockCandidate: BlockFoundEvent | null;
   notifyShareAccepted: boolean;
   notifyJackpot: boolean;
@@ -45,7 +44,6 @@ function emptyEffects(
     lastShare: state.lastShare,
     petLogMessages: [],
     uiEvents: [],
-    jackpotPauseRequested: state.jackpotPauseRequested,
     blockCandidate: state.blockCandidate,
     notifyShareAccepted: false,
     notifyJackpot: false,
@@ -100,7 +98,6 @@ export function effectsFromRuntimePayload(
     );
     effects.notifyJackpot = true;
     effects.devLogMessage = `Block candidate found: job=${block.job_id}, hash=${block.hash}`;
-    effects.jackpotPauseRequested = context.wasMining && state.jackpotPauseRequested;
     return effects;
   }
 

@@ -4,6 +4,11 @@
 
 ### Changed
 
+- Kept the pet, and treated Eco / one busy CPU thread as the intended
+  background lottery mode. Jackpot presentation no longer pauses or restarts
+  the miner.
+- Hidden-window UI clocks, stats paints, and pet animations now pause so a
+  tray session can keep one hash core busy without extra frontend work.
 - Narrowed the application to explicitly confirmed local CPU mining with the
   optimized reusable-midstate SHA-256d kernel as the only production hash path.
 - Made `src-tauri` a Cargo workspace so tests and Clippy cover the app plus the
@@ -25,6 +30,8 @@
 
 ### Removed
 
+- Removed periodic public-explorer block-height polling and the related CSP
+  network exceptions. Mining no longer opens explorer HTTPS connections.
 - Removed pool diagnostics, diagnostic snapshot export, webhook and heartbeat
   notifications, runtime algorithm recommendations, and the unused full-header
   hash path. Local Windows notifications and block-candidate records remain.

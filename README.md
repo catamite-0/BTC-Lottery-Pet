@@ -204,7 +204,8 @@ is not part of the frontend settings contract. Existing config files are
 normalized when loaded.
 
 `performance_preset` and `cpu_threads` are the enforced real-mining CPU limits.
-The default `eco` preset uses one CPU thread.
+The default `eco` preset uses one CPU thread and is the intended background
+lottery mode.
 
 The first upgrade from a pre-schema 0.8 config writes the untouched original to
 `config.pre-schema-1.json` before replacing removed fields. Every legacy Normal
@@ -261,7 +262,7 @@ to disabled.
 Alerts are delivered as local Windows notification-style balloons. Jackpot and
 connection warnings also play a short system sound. Notifications are one-way
 and local only: there is no webhook, no remote listener, and no network egress
-beyond the mining pool connection and the block-height lookups.
+beyond the mining pool connection.
 
 ## Prerequisites On Windows
 

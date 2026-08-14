@@ -199,8 +199,6 @@ export function useMiningSessionControls({
       isMining,
       petStateLabel(petState),
     ),
-    startRealMiningConfirmed,
-    runtimeMiningProfileForConfig,
     confirmCpuWarning,
   };
 }

@@ -3,7 +3,6 @@ import {
   listenToMiningLogs,
   listenToMiningRuntimeEvents,
   listenToMiningStats,
-  stopRealMining,
 } from "../platform/tauri/miningClient";
 import { miningLogMessageForActiveSession } from "../contracts/mining";
 import {
@@ -32,9 +31,6 @@ interface UseMiningEventsOptions {
   realStatsRef: LatestRef<RealMiningStats>;
   isMiningRef: LatestRef<boolean>;
   activeMiningSessionIdRef: LatestRef<number | null>;
-  setIsMining: Dispatch<SetStateAction<boolean>>;
-  setActiveMiningSessionId: Dispatch<SetStateAction<number | null>>;
-  setMiningControlPending: Dispatch<SetStateAction<boolean>>;
   setErrorMessage: Dispatch<SetStateAction<string | null>>;
   setRealStats: Dispatch<SetStateAction<RealMiningStats>>;
   setLastShare: Dispatch<SetStateAction<string>>;
@@ -50,9 +46,6 @@ export function useMiningEvents({
   realStatsRef,
   isMiningRef,
   activeMiningSessionIdRef,
-  setIsMining,
-  setActiveMiningSessionId,
-  setMiningControlPending,
   setErrorMessage,
   setRealStats,
   setLastShare,
@@ -62,38 +55,62 @@ export function useMiningEvents({
   emitMiningEvent,
 }: UseMiningEventsOptions) {
   const lastConnectionNotificationRef = useRef(0);
+  const pendingStatsRef = useRef<RealMiningStats | null>(null);
   const isCurrentSession = (sessionId: number) => activeMiningSessionIdRef.current === sessionId;
+
+  const applyStatsPayload = (payload: RealMiningStats) => {
+    setRealStats((current) => {
+      if (!isMiningRef.current) {
+        if (payload.connection_status === "Stopped") {
+          return { ...payload, hashrate: 0 };
+        }
+
+        return current;
+      }
+
+      if (payload.connection_status === "Stopped") {
+        return current;
+      }
+
+      return {
+        ...payload,
+        accepted_shares: Math.max(current.accepted_shares, payload.accepted_shares),
+        rejected_shares: Math.max(current.rejected_shares, payload.rejected_shares),
+        stale_shares_dropped: Math.max(current.stale_shares_dropped, payload.stale_shares_dropped),
+        queued_shares_dropped: Math.max(current.queued_shares_dropped, payload.queued_shares_dropped ?? 0),
+      };
+    });
+  };
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let unmounted = false;
+
+    const flushPendingStats = () => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+
+      const pending = pendingStatsRef.current;
+      if (!pending) {
+        return;
+      }
+
+      pendingStatsRef.current = null;
+      applyStatsPayload(pending);
+    };
 
     listenToMiningStats((event) => {
       if (!isCurrentSession(event.payload.session_id)) {
         return;
       }
 
-      setRealStats((current) => {
-        if (!isMiningRef.current) {
-          if (event.payload.connection_status === "Stopped") {
-            return { ...event.payload, hashrate: 0 };
-          }
+      if (document.visibilityState === "hidden") {
+        pendingStatsRef.current = event.payload;
+        return;
+      }
 
-          return current;
-        }
-
-        if (event.payload.connection_status === "Stopped") {
-          return current;
-        }
-
-        return {
-          ...event.payload,
-          accepted_shares: Math.max(current.accepted_shares, event.payload.accepted_shares),
-          rejected_shares: Math.max(current.rejected_shares, event.payload.rejected_shares),
-          stale_shares_dropped: Math.max(current.stale_shares_dropped, event.payload.stale_shares_dropped),
-          queued_shares_dropped: Math.max(current.queued_shares_dropped, event.payload.queued_shares_dropped ?? 0),
-        };
-      });
+      applyStatsPayload(event.payload);
     })
       .then((cleanup) => {
         if (unmounted) {
@@ -108,8 +125,11 @@ export function useMiningEvents({
         }
       });
 
+    document.addEventListener("visibilitychange", flushPendingStats);
+
     return () => {
       unmounted = true;
+      document.removeEventListener("visibilitychange", flushPendingStats);
       unlisten?.();
     };
   }, [
@@ -117,7 +137,6 @@ export function useMiningEvents({
     isMiningRef,
     runningInTauri,
     setErrorMessage,
-    setIsMining,
     setRealStats,
   ]);
 
@@ -226,25 +245,6 @@ export function useMiningEvents({
         const block = effects.blockCandidate;
         setJackpotSequence(startJackpotSequence(block, wasMining));
 
-        if (effects.jackpotPauseRequested) {
-          isMiningRef.current = false;
-          setIsMining(false);
-          setRealStats((current) => ({
-            ...current,
-            hashrate: 0,
-            connection_status: effects.connectionStatus ?? "Jackpot pause",
-          }));
-          setMiningControlPending(true);
-          void stopRealMining()
-            .then(() => setActiveMiningSessionId(null))
-            .catch((error) => {
-              appendDevLog("stratum", `Jackpot pause failed: ${formatError(error)}`);
-            })
-            .finally(() => {
-              setMiningControlPending(false);
-            });
-        }
-
         if (effects.notifyJackpot) {
           void notifyJackpot(notificationSettingsFromConfig(configRef.current), {
             pool: block.pool,
@@ -282,12 +282,9 @@ export function useMiningEvents({
     isMiningRef,
     realStatsRef,
     runningInTauri,
-    setActiveMiningSessionId,
     setErrorMessage,
-    setIsMining,
     setJackpotSequence,
     setLastShare,
-    setMiningControlPending,
     setRealStats,
   ]);
 }

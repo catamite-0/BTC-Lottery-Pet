@@ -117,14 +117,13 @@ test("structured mining events expose connection error notification status", () 
   assert.equal(state.petLogMessage, "I lost the pool signal.");
 });
 
-test("structured mining events expose block candidate pause state", () => {
+test("structured mining events keep mining running for block candidates", () => {
   const state = reduceStructuredMiningEvents(
-    createStructuredMiningEventState(baseStats),
+    createStructuredMiningEventState({ ...baseStats, connection_status: "Mining" }),
     [structuredMiningEventFromBlockCandidate(blockCandidate)],
   );
 
-  assert.equal(state.connectionStatus, "Jackpot pause");
-  assert.equal(state.jackpotPauseRequested, true);
+  assert.equal(state.connectionStatus, "Mining");
   assert.deepEqual(state.blockCandidate, blockCandidate);
 });
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, type Dispatch, type SetStateAction } from "react";
 import {
   idleJackpotSequence,
   isJackpotOverlayVisible,
@@ -6,29 +6,17 @@ import {
   nextJackpotPhase,
   type JackpotSequenceSnapshot,
 } from "../domain/jackpotSequence";
-import type { BlockFoundEvent, RuntimeMiningProfile } from "../contracts/mining";
+import type { BlockFoundEvent } from "../contracts/mining";
 
 interface UseJackpotFlowOptions {
   jackpotSequence: JackpotSequenceSnapshot;
   setJackpotSequence: Dispatch<SetStateAction<JackpotSequenceSnapshot>>;
-  startRealMiningConfirmed: (runtimeProfile: RuntimeMiningProfile) => Promise<void>;
-  runtimeMiningProfileForConfig: () => RuntimeMiningProfile;
 }
 
 export function useJackpotFlow({
   jackpotSequence,
   setJackpotSequence,
-  startRealMiningConfirmed,
-  runtimeMiningProfileForConfig,
 }: UseJackpotFlowOptions) {
-  const startRealMiningConfirmedRef = useRef(startRealMiningConfirmed);
-  const runtimeMiningProfileForConfigRef = useRef(runtimeMiningProfileForConfig);
-
-  useEffect(() => {
-    startRealMiningConfirmedRef.current = startRealMiningConfirmed;
-    runtimeMiningProfileForConfigRef.current = runtimeMiningProfileForConfig;
-  });
-
   useEffect(() => {
     const duration = jackpotPhaseDurationMs(jackpotSequence.phase);
     if (duration === null) {
@@ -47,42 +35,11 @@ export function useJackpotFlow({
     return () => window.clearTimeout(timer);
   }, [jackpotSequence.id, jackpotSequence.phase, setJackpotSequence]);
 
-  useEffect(() => {
-    if (jackpotSequence.phase !== "resume") {
-      return;
-    }
-
-    let cancelled = false;
-    const resumeMining = async () => {
-      if (jackpotSequence.wasMining) {
-        await startRealMiningConfirmedRef.current(runtimeMiningProfileForConfigRef.current());
-      }
-
-      if (!cancelled) {
-        setJackpotSequence((current) => (
-          current.id === jackpotSequence.id
-            ? { ...current, phase: "complete" }
-            : current
-        ));
-      }
-    };
-
-    void resumeMining();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    jackpotSequence.id,
-    jackpotSequence.phase,
-    jackpotSequence.wasMining,
-    setJackpotSequence,
-  ]);
-
   const dismissJackpotSequence = useCallback(() => {
     setJackpotSequence((current) => (
       current.phase === "idle" || current.phase === "complete"
         ? idleJackpotSequence
-        : { ...current, phase: "resume" }
+        : { ...current, phase: "complete" }
     ));
   }, [setJackpotSequence]);
 

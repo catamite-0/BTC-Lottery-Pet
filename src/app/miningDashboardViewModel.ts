@@ -27,7 +27,6 @@ export type MetricId =
   | "etaBlock"
   | "poolDiff"
   | "sharesPerHour"
-  | "blockHeight"
   | "sharesAR"
   | "staleDrops"
   | "queueDrops"
@@ -72,7 +71,6 @@ export interface MiningDashboardViewModelInput {
   effectiveCpuThreads: number;
   miningUptime: number;
   appUptime: number;
-  blockHeight: string;
   petLogsCount: number;
   devLogsCount: number;
 }
@@ -185,7 +183,6 @@ export function createMiningDashboardViewModel(input: MiningDashboardViewModelIn
     metric("etaBlock", "ETA BLOCK", formatProbabilityTime(probabilitySnapshot.estimatedTimeToBlockSeconds), "network"),
     metric("poolDiff", "POOL DIFF", shareDifficultyValue, "network"),
     metric("sharesPerHour", "SHARES/H", shareRateValue, "network"),
-    metric("blockHeight", "BLOCK HEIGHT", input.blockHeight, "session"),
     metric("sharesAR", "SHARES A / R", `${input.acceptedShares} / ${input.rejectedShares}`, "session"),
     metric("staleDrops", "STALE DROPS", `${input.realStats.stale_shares_dropped}`, "session"),
     metric("queueDrops", "QUEUE DROPS", `${input.realStats.queued_shares_dropped}`, "session"),

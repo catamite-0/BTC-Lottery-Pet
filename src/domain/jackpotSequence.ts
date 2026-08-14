@@ -73,7 +73,7 @@ export function jackpotPhaseDurationMs(phase: JackpotSequencePhase) {
     case "reveal":
       return 7000;
     case "resume":
-      return null;
+      return 400;
     default:
       return null;
   }
@@ -88,7 +88,7 @@ export function jackpotPhaseLabel(phase: JackpotSequencePhase) {
     case "detect":
       return "Detecting";
     case "pause":
-      return "Pausing mining";
+      return "Holding";
     case "screen_effect":
       return "Screen flash";
     case "particles":
@@ -96,7 +96,7 @@ export function jackpotPhaseLabel(phase: JackpotSequencePhase) {
     case "reveal":
       return "Block reveal";
     case "resume":
-      return "Resuming";
+      return "Clearing";
     case "complete":
       return "Complete";
     case "idle":

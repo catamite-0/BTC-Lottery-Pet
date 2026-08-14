@@ -12,7 +12,7 @@ import {
   idleRealStats,
   runningInTauri,
 } from "../appDefaults";
-import { useBlockHeight } from "../../hooks/useBlockHeight";
+import { useDocumentVisibility } from "../../hooks/useDocumentVisibility";
 import { useLogActions } from "../../hooks/useLogActions";
 import { useJackpotFlow } from "../../hooks/useJackpotFlow";
 import { useMiningEvents } from "../../hooks/useMiningEvents";
@@ -48,8 +48,10 @@ export function useAppRuntime() {
   const [systemInfo, setSystemInfo] = useState<SystemInfo>(fallbackSystemInfo);
   const [hardwareReady, setHardwareReady] = useState(false);
 
-  const blockHeight = useBlockHeight();
+  const windowVisible = useDocumentVisibility();
   const coolingDownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appStartedAtRef = useRef(Date.now());
+  const miningStartedAtRef = useRef<number | null>(null);
   const configRef = useLatestRef(config);
   const realStatsRef = useLatestRef(realStats);
   const isMiningRef = useLatestRef(isMining);
@@ -76,21 +78,30 @@ export function useAppRuntime() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setAppUptime((value) => value + 1);
-    }, 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!isMining) {
+    if (isMining) {
+      miningStartedAtRef.current ??= Date.now();
       return;
     }
-    const timer = window.setInterval(() => {
-      setMiningUptime((value) => value + 1);
-    }, 1_000);
-    return () => window.clearInterval(timer);
+
+    miningStartedAtRef.current = null;
   }, [isMining]);
+
+  useEffect(() => {
+    if (!windowVisible) {
+      return;
+    }
+
+    const syncUptime = () => {
+      setAppUptime(Math.floor((Date.now() - appStartedAtRef.current) / 1000));
+      if (miningStartedAtRef.current !== null) {
+        setMiningUptime(Math.floor((Date.now() - miningStartedAtRef.current) / 1000));
+      }
+    };
+
+    syncUptime();
+    const timer = window.setInterval(syncUptime, 1_000);
+    return () => window.clearInterval(timer);
+  }, [windowVisible]);
 
   useStartupState({
     runningInTauri,
@@ -111,9 +122,6 @@ export function useAppRuntime() {
     realStatsRef,
     isMiningRef,
     activeMiningSessionIdRef,
-    setIsMining,
-    setActiveMiningSessionId,
-    setMiningControlPending,
     setErrorMessage,
     setRealStats,
     setLastShare,
@@ -200,8 +208,6 @@ export function useAppRuntime() {
     startMining,
     stopMining,
     miningSessionStatus,
-    startRealMiningConfirmed,
-    runtimeMiningProfileForConfig,
     confirmCpuWarning,
   } = useMiningSessionControls({
     runningInTauri,
@@ -234,8 +240,6 @@ export function useAppRuntime() {
   } = useJackpotFlow({
     jackpotSequence,
     setJackpotSequence,
-    startRealMiningConfirmed,
-    runtimeMiningProfileForConfig,
   });
 
   const dashboardViewModel = createMiningDashboardViewModel({
@@ -255,7 +259,6 @@ export function useAppRuntime() {
     effectiveCpuThreads,
     miningUptime,
     appUptime,
-    blockHeight,
     petLogsCount: petLogs.length,
     devLogsCount: devLogs.length,
   });
@@ -277,7 +280,6 @@ export function useAppRuntime() {
       lastShare,
       latestLog,
       effectiveCpuThreads,
-      blockHeight,
       onStartMining: startMining,
       onStopMining: stopMining,
       openLogs,

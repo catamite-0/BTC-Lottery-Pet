@@ -68,6 +68,7 @@ export default function CpuSettingsSection({
               </button>
             ))}
           </div>
+          <small>Eco keeps one thread busy in the background. That is the intended lottery mode.</small>
         </div>
         <label>
           CPU THREADS
